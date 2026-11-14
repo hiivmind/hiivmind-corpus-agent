@@ -41,10 +41,10 @@ Inputs: source `{{input.source}}`; files `{{input.files}}`.
 
 ## Steps
 
-1. CALL `load` with the path `reference/source-scanner.md`. Its section "Entry Metadata Generation" says how each of the ten fields is made; use only that section. Ignore its sections on section entries and chunks.
+1. CALL `load` with the path `reference/source-scanner.md`. Its section "Entry Metadata Generation" says how each of the ten fields is made; use only that section. Ignore its sampling strategy: scan every file of the batch, each one on its own. Ignore its sections on section entries and chunks.
 2. CALL `files__read_text_file` with the path `{{settings.CORPUS_PATH}}/config.yaml`. Find the source whose `id` is `{{input.source}}` and take its `docs_root`. If the source is not in the file, EXIT `failed` with output `reason` saying the source is not in `config.yaml`.
-3. CALL `load` with the path `reference/paths.md`. The working copy of a git source is `{{settings.CORPUS_PATH}}/.source/{{input.source}}/` and a file is at `<docs_root>/<path>` under it, where `<path>` is a path of `files`. A `docs_root` of `.` or none means the files are directly under it.
-4. For each path in the files, in order, CALL `files__read_text_file` with the path `{{settings.CORPUS_PATH}}/.source/{{input.source}}/<docs_root>/<path>`. A file that cannot be read (the call returned an error) is left out of the entries: do not make one up and do not try it again. To count the lines of a long file, CALL `shell__run` with the command `wc -l` on its full path.
+3. The working copy of a git source is `{{settings.CORPUS_PATH}}/.source/{{input.source}}/` and a file is at `<docs_root>/<path>` under it, where `<path>` is a path of `files`. A `docs_root` of `.` or none means the files are directly under it. (This rule is the one of `reference/paths.md`, "Resolve Source Reference to File".)
+4. For each path in the files, in order, CALL `files__read_text_file` with the path `{{settings.CORPUS_PATH}}/.source/{{input.source}}/<docs_root>/<path>`. A file that cannot be read (the call returned an error) is left out of the entries: do not make one up and do not try it again. To count the lines of a long file, CALL `shell__run` with the command `wc -l <full path>`, the full path of the file written out.
 5. For each file read, make one entry with these ten fields, from "Entry Metadata Generation":
    - `path`: exactly as it was given in the files, not the full path and not prefixed with the source id;
    - `title`, `summary`, `tags`, `keywords`, `category`, `content_type`, `size`, `grep_hint`, `headings`.

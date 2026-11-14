@@ -21,3 +21,9 @@ async def test_scan_returns_the_entry_the_script_wrote_for_the_file(corpus_stale
     result = await run("scan", {"source": "docs", "files": ["a.md"]})
     [entry] = result["outputs"]["entries"]
     assert entry["path"] == "a.md" and entry["content_type"] == "markdown" and entry["size"] == "standard"
+
+
+async def test_scan_sends_back_a_category_outside_the_enum(corpus_stale, run):
+    result = await run("scan", {"source": "docs", "files": ["a.md"]}, case="scan_bad_category")   # wrong twice
+    assert result["outcome"] == "failed" and result["reason"] == "invalid_output"
+    assert any("category" in e and "essay" in e for e in result["errors"])
