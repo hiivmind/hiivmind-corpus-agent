@@ -104,7 +104,7 @@ class Corpus:
         self.bin = base / "bin"
         self.gh_log = base / "gh.log"
         self.gh_prs = base / "gh-prs.json"
-        self._runs = itertools.count(1)
+        self._counter = itertools.count(1)
 
         names = ["a.md", "b.md", "c.md"] + [f"m{i:02d}.md" for i in range(1, extra_files + 1)]
         (self.upstream / "docs").mkdir()
@@ -166,6 +166,10 @@ class Corpus:
             subprocess.run(["git", "clone", "-q", str(self.upstream), str(source)], check=True)
         if stale:
             self.mark_stale(*stale)
+
+    def next_dir(self, label: str) -> Path:
+        """A path under the fixture's directory that no one has been given before; not created."""
+        return self.base / f"{label}-{next(self._counter)}"
 
     # --- the environment the stand-in `gh` needs -------------------------------------------------------------------
     def environment(self) -> dict[str, str]:
@@ -253,7 +257,7 @@ class Corpus:
             "CORPUS": str(self.path), "CLONE": str(self.clone), "UPSTREAM": str(self.upstream), "OLD_SHA": old,
             "NEW_SHA": self.upstream_head, "TODAY": date.today().isoformat(), **tokens,
         }
-        out = self.base / f"scripts-{case}-{next(self._runs)}"
+        out = self.next_dir(f"scripts-{case}")
         out.mkdir()
         for file in sorted((SCRIPTS / case).glob("*.json")):
             text = file.read_text()
@@ -265,7 +269,7 @@ class Corpus:
 
 @pytest.fixture
 def _current():
-    """The corpus fixture of this test, for `run` and `job` to find."""
+    """The corpus fixture of this test, for `run` and `job` to find. One test uses one corpus fixture."""
     return {}
 
 
@@ -279,27 +283,31 @@ def _make(monkeypatch, current, tmp_path, *, at_root=False, push=False, extra_fi
 
 @pytest.fixture
 def corpus(monkeypatch, _current, tmp_path):
+    """The corpus in `hiivmind-corpus-test/`, `PUSH: false`. One test uses one corpus fixture: they all build in `tmp_path`."""
     return _make(monkeypatch, _current, tmp_path)
 
 
 @pytest.fixture
 def corpus_at_root(monkeypatch, _current, tmp_path):
+    """`corpus` with the corpus at the clone's root. One test uses one corpus fixture."""
     return _make(monkeypatch, _current, tmp_path, at_root=True)
 
 
 @pytest.fixture
 def corpus_pushing(monkeypatch, _current, tmp_path):
+    """`corpus` with `PUSH: true`. One test uses one corpus fixture."""
     return _make(monkeypatch, _current, tmp_path, push=True)
 
 
 @pytest.fixture
 def corpus_stale(monkeypatch, _current, tmp_path):
+    """`corpus` with `docs:a.md` and `docs:b.md` stale and `.source/docs/` checked out. One test uses one corpus fixture."""
     return _make(monkeypatch, _current, tmp_path, stale=("docs:a.md", "docs:b.md"), checkout=True)
 
 
 @pytest.fixture
 def corpus_many(monkeypatch, _current, tmp_path):
-    """61 files in the source and 61 entries in the index, all stale: three batches of at most 30."""
+    """61 files in the source and 61 entries in the index, all stale: three batches of at most 30. One test uses one corpus fixture."""
     names = ["docs:a.md", "docs:b.md", "docs:c.md"] + [f"docs:m{i:02d}.md" for i in range(1, 59)]
     return _make(monkeypatch, _current, tmp_path, extra_files=58, stale=tuple(names), checkout=True)
 
@@ -329,7 +337,7 @@ def run(_current):
     async def run(node: str, inputs: dict, case: str | None = None) -> dict:
         corpus: Corpus = _current["corpus"]
         script = json.loads((corpus.scripts(case) / f"{node}.json").read_text())
-        run_dir = corpus.base / f"run-{next(corpus._runs)}"
+        run_dir = corpus.next_dir("run")
         async with open_run(INSTANCE_YAML, settings_files=[corpus.settings_file], run_dir=run_dir) as opened:
             return await opened.run_node(node, inputs, driver=ScriptedBackend(script=script))
     return run
@@ -340,7 +348,7 @@ def job(_current):
     """`job(case="ok", env=None, **params)`: the refresh job in a subprocess; `(exit code, standard output, run record or None)`."""
     def job(case: str = "ok", env: dict[str, str] | None = None, **params: str):
         corpus: Corpus = _current["corpus"]
-        run_dir = corpus.base / f"run-{next(corpus._runs)}"
+        run_dir = corpus.next_dir("run")
         command = [
             sys.executable, "-m", "agent_core.core.cli", "job", str(INSTANCE_YAML), "refresh",
             "--settings", str(corpus.settings_file), "--backend", "scripted", "--run-dir", str(run_dir),

@@ -1,4 +1,5 @@
 import subprocess
+import sys
 
 from tests.helpers import ROOT
 
@@ -16,7 +17,7 @@ def test_a_missing_setting_stops_the_run_before_it_starts_and_names_it(tmp_path)
     settings = tmp_path / "s.yaml"
     settings.write_text("CORPUS_REPO: a/b\nBRANCH_PREFIX: x\n")
     r = subprocess.run(
-        ["agent-core", "job", "instance.yaml", "refresh", "--settings", str(settings), "--run-dir", str(tmp_path / "run")],
+        [sys.executable, "-m", "agent_core.core.cli", "job", "instance.yaml", "refresh", "--settings", str(settings), "--run-dir", str(tmp_path / "run")],
         cwd=ROOT, capture_output=True, text=True,
     )
     assert r.returncode == 2 and r.stdout.startswith("error: ") and "CORPUS_PATH" in r.stdout and len(r.stdout.strip().splitlines()) == 1

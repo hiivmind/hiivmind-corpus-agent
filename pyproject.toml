@@ -23,4 +23,6 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 pythonpath = ["."]
 markers = ["model: calls a model provider and costs money"]
-addopts = "-m 'not model'"
+# Run pytest from the repository root: --basetemp is relative to it. The temporary directories are kept out of any
+# hidden directory (TMPDIR may point into one) because the snap `yq` cannot read a hidden directory.
+addopts = "-m 'not model' --basetemp=test-tmp"
