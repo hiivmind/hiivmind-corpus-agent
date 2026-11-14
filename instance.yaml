@@ -1,0 +1,12 @@
+name: corpus
+core: 0
+entry: topology.yaml
+policy: POLICY.md
+backend: langgraph
+servers:
+  shell: {command: python, args: [-m, agent_tools.shell_server]}
+  files: {command: npx, args: [-y, "@modelcontextprotocol/server-filesystem", "/"]}
+settings:
+  class: settings.CorpusSettings
+  files: [config/base.yaml]
+  env_prefix: HIIVMIND_CORPUS_

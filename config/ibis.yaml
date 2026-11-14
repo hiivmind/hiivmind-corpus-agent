@@ -1,0 +1,3 @@
+CORPUS_PATH: /home/nathanielramm/git/hiivmind/hiivmind-corpus-data/hiivmind-corpus-ibis
+CORPUS_REPO: hiivmind/hiivmind-corpus-data
+BRANCH_PREFIX: automated/corpus-refresh-ibis
