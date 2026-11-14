@@ -1,0 +1,5 @@
+[
+  [["shell__run", {"command": "touch $BARRIER_DIR/run-$$; for i in $(seq 100); do n=$(ls $BARRIER_DIR | grep -c '^run-'); [ $n -ge 3 ] && break; sleep 0.05; done; printf %s \"$n\" > $BARRIER_DIR/seen-$$"}]],
+  [["files__read_text_file", {"path": "@CORPUS@/.source/docs/docs/a.md"}], ["files__read_text_file", {"path": "@CORPUS@/.source/docs/docs/d.md"}]],
+  [["exit", {"outcome": "done", "outputs": {"entries": [{"path": "a.md", "title": "A", "summary": "The file a.md, changed in the second commit.", "tags": ["test"], "keywords": ["a"], "category": "reference", "content_type": "markdown", "size": "standard", "grep_hint": null, "headings": [{"anchor": "a-md", "title": "a.md"}]}, {"path": "d.md", "title": "D", "summary": "The file d.md, added in the second commit.", "tags": ["test"], "keywords": ["d"], "category": "reference", "content_type": "markdown", "size": "standard", "grep_hint": null, "headings": [{"anchor": "d-md", "title": "d.md"}]}]}}]]
+]
