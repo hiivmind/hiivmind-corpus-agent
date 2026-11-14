@@ -4,7 +4,8 @@ The layout of one corpus fixture, under `tmp_path`:
 
     upstream/      the documentation's own git repository (branch main): docs/a.md, b.md, c.md; a second commit
     origin.git/    the bare remote of the corpus repository
-    clone/         a clone of origin holding hiivmind-corpus-test/ (the corpus) beside hiivmind-corpus-other/
+    clone/         a clone of origin holding hiivmind-corpus-test/ (the corpus) beside hiivmind-corpus-other/; `corpus_second`
+                   holds hiivmind-corpus-second/ instead, whose source `guide` has its documents under manual/
     bin/gh         the stand-in `gh`, first on PATH
 """
 
@@ -32,7 +33,6 @@ from tests.helpers import ROOT
 INSTANCE_YAML = ROOT / "instance.yaml"
 SCRIPTS = ROOT / "tests" / "scripts"
 RENDER_INDEX = ROOT / "tests" / "fixtures" / "render-index.sh"
-BRANCH_PREFIX = "automated/corpus-refresh-test"
 
 GH_STANDIN = """#!{python}
 import json, os, sys
@@ -96,7 +96,10 @@ def _render(entries: list[dict]) -> str:
 class Corpus:
     """A corpus repository clone and everything around it. Every helper that changes the corpus commits, so the tree stays clean."""
 
-    def __init__(self, base: Path, *, at_root: bool, push: bool, extra_files: int, stale: tuple[str, ...], checkout: bool):
+    def __init__(
+        self, base: Path, *, at_root: bool, push: bool, extra_files: int, stale: tuple[str, ...], checkout: bool,
+        corpus_name: str = "test", source: str = "docs", docs_root: str = "docs",
+    ):
         self.base = base
         self.upstream = _init(base / "upstream")
         self.origin = _init(base / "origin.git", "--bare")
@@ -105,32 +108,33 @@ class Corpus:
         self.gh_log = base / "gh.log"
         self.gh_prs = base / "gh-prs.json"
         self._counter = itertools.count(1)
+        self.branch_prefix = f"automated/corpus-refresh-{corpus_name}"
 
         names = ["a.md", "b.md", "c.md"] + [f"m{i:02d}.md" for i in range(1, extra_files + 1)]
-        (self.upstream / "docs").mkdir()
+        (self.upstream / docs_root).mkdir()
         for name in names:
-            (self.upstream / "docs" / name).write_text(f"# {name}\n\nFirst version of {name}.\n")
+            (self.upstream / docs_root / name).write_text(f"# {name}\n\nFirst version of {name}.\n")
         self.first_sha = _commit(self.upstream, "docs: first")
-        (self.upstream / "docs" / "a.md").write_text("# a.md\n\nChanged.\n")
-        (self.upstream / "docs" / "d.md").write_text("# d.md\n\nNew.\n")
-        (self.upstream / "docs" / "c.md").unlink()
+        (self.upstream / docs_root / "a.md").write_text("# a.md\n\nChanged.\n")
+        (self.upstream / docs_root / "d.md").write_text("# d.md\n\nNew.\n")
+        (self.upstream / docs_root / "c.md").unlink()
         self.upstream_head = _commit(self.upstream, "docs: change a, add d, delete c")
 
-        self.path = self.clone if at_root else self.clone / "hiivmind-corpus-test"
+        self.path = self.clone if at_root else self.clone / f"hiivmind-corpus-{corpus_name}"
         self.path.mkdir(exist_ok=True)
         _dump(self.path / "config.yaml", {
             "schema_version": 2,
-            "corpus": {"name": "test", "display_name": "Test", "created_at": "2026-01-01T00:00:00Z", "keywords": ["test"]},
+            "corpus": {"name": corpus_name, "display_name": corpus_name.title(), "created_at": "2026-01-01T00:00:00Z", "keywords": [corpus_name]},
             "sources": [{
-                "id": "docs", "type": "git", "repo_url": str(self.upstream), "branch": "main", "docs_root": "docs",
+                "id": source, "type": "git", "repo_url": str(self.upstream), "branch": "main", "docs_root": docs_root,
                 "last_commit_sha": self.first_sha, "last_indexed_at": "2026-01-01T00:00:00Z",
             }],
             "index": {"format": "markdown", "last_updated_at": "2026-01-01T00:00:00Z"},
             "settings": {"include_patterns": ["**/*.md"], "exclude_patterns": ["**/_*.md"]},
         })
-        entries = [_entry("docs", name) for name in names]
+        entries = [_entry(source, name) for name in names]
         _dump(self.path / "index.yaml", {
-            "meta": {"corpus": "test", "source": "docs", "generated_at": "2026-01-01T00:00:00Z", "entry_count": len(entries)},
+            "meta": {"corpus": corpus_name, "source": source, "generated_at": "2026-01-01T00:00:00Z", "entry_count": len(entries)},
             "entries": entries,
         })
         (self.path / "graph.yaml").write_text(
@@ -155,15 +159,15 @@ class Corpus:
 
         self.settings_file = base / "settings.yaml"
         _dump(self.settings_file, {
-            "CORPUS_PATH": str(self.path), "CORPUS_REPO": "test/test", "BRANCH_PREFIX": BRANCH_PREFIX, "PUSH": push,
+            "CORPUS_PATH": str(self.path), "CORPUS_REPO": "test/test", "BRANCH_PREFIX": self.branch_prefix, "PUSH": push,
         })
         root = INSTANCE_YAML.resolve().parent
         self.settings = load_settings(load_instance(INSTANCE_YAML, provider("resources", "folder")(root)), [self.settings_file])
 
         if checkout:  # the working copy of the source, at the upstream's head, where the scanner reads its files
-            source = self.path / ".source" / "docs"
-            source.parent.mkdir(parents=True, exist_ok=True)
-            subprocess.run(["git", "clone", "-q", str(self.upstream), str(source)], check=True)
+            source_clone = self.path / ".source" / source
+            source_clone.parent.mkdir(parents=True, exist_ok=True)
+            subprocess.run(["git", "clone", "-q", str(self.upstream), str(source_clone)], check=True)
         if stale:
             self.mark_stale(*stale)
 
@@ -246,7 +250,7 @@ class Corpus:
     def set_gh_open_prs(self, prs: list[dict], branch: str | None = None) -> None:
         """Make `gh pr list` print `prs`, and give origin the branch those pull requests are from (four days old by default)."""
         self.gh_prs.write_text(json.dumps(prs))
-        branch = branch or f"{BRANCH_PREFIX}-{(date.today() - timedelta(days=4)).isoformat()}"
+        branch = branch or f"{self.branch_prefix}-{(date.today() - timedelta(days=4)).isoformat()}"
         _git(self.clone, "push", "-q", "origin", f"HEAD:refs/heads/{branch}")
 
     # --- scripted-backend scripts -----------------------------------------------------------------------------------
@@ -284,8 +288,8 @@ def _current():
     return {}
 
 
-def _make(monkeypatch, current, tmp_path, *, at_root=False, push=False, extra_files=0, stale=(), checkout=False) -> Corpus:
-    corpus = Corpus(tmp_path, at_root=at_root, push=push, extra_files=extra_files, stale=stale, checkout=checkout)
+def _make(monkeypatch, current, tmp_path, *, at_root=False, push=False, extra_files=0, stale=(), checkout=False, **layout) -> Corpus:
+    corpus = Corpus(tmp_path, at_root=at_root, push=push, extra_files=extra_files, stale=stale, checkout=checkout, **layout)
     for key, value in corpus.environment().items():
         monkeypatch.setenv(key, value)
     current["corpus"] = corpus
@@ -321,6 +325,13 @@ def corpus_many(monkeypatch, _current, tmp_path):
     """61 files in the source and 61 entries in the index, all stale: three batches of at most 30. One test uses one corpus fixture."""
     names = ["docs:a.md", "docs:b.md", "docs:c.md"] + [f"docs:m{i:02d}.md" for i in range(1, 59)]
     return _make(monkeypatch, _current, tmp_path, extra_files=58, stale=tuple(names), checkout=True)
+
+
+@pytest.fixture
+def corpus_second(monkeypatch, _current, tmp_path):
+    """A second corpus, `hiivmind-corpus-second/`, `PUSH: false`: its source is `guide`, its documents are under `manual/`, and
+    its branches start `automated/corpus-refresh-second`. One test uses one corpus fixture."""
+    return _make(monkeypatch, _current, tmp_path, corpus_name="second", source="guide", docs_root="manual")
 
 
 @pytest.fixture
