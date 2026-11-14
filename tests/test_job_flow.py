@@ -85,3 +85,29 @@ def test_a_failed_pre_check_does_not_stop_the_refresh(job, corpus):
     code, out, record = job()
     assert code == 0 and record["summary"]["status"] == "refreshed" and any("corpus_status" in e for e in record["summary"]["errors"])
 
+
+
+def test_a_refresh_that_commits_nothing_ends_as_no_changes(job, corpus):
+    code, out, record = job("nothing_to_refresh")   # the pre-check says behind; the refresh finds nothing to write
+    s = record["summary"]
+    assert code == 0 and s["status"] == "no changes" and s["enriched"] == 0 and s["needs_attention"] == []
+    assert [r["node"] for r in record["runs"]] == ["refresh"]
+    assert corpus.git("branch", "--list", "automated/*") == "" and corpus.git("branch", "--show-current") == "main"
+
+
+def test_the_lag_is_zero_after_an_enrich_that_updates_the_embeddings(job, corpus):
+    code, out, record = job("embeddings_updated")   # the refresh deferred the embeddings and reported a lag of 5
+    s = record["summary"]
+    assert code == 0 and s["embeddings"] == "updated" and s["embeddings_lag"] == 0
+
+
+def test_the_body_names_each_source_by_what_became_of_it(job, corpus):
+    code, out, record = job("mixed_sources")
+    message = corpus.git("log", "-1", "--format=%B")
+    old, new = corpus.first_sha[:7], corpus.upstream_head[:7]
+    assert f"- Updated: `docs` (git): {old} -> {new}, 3 files changed" in message
+    assert "- Current: `same` (git)\n" in message
+    assert "- Skipped as manual: `wiki` (web): source type `web` is not handled by this instance yet\n" in message
+    assert "- Failed: `gone` (git): the tracked commit is gone\n" in message
+    assert "- Failed: `odd` (git)\n" in message
+    assert "None" not in message

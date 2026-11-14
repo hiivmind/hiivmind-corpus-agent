@@ -1,0 +1,3 @@
+[
+  [["exit", {"outcome": "done", "outputs": {"concepts_assigned": 0, "new_concept_candidates": [], "verification": {"sampled": 0, "failed": 0, "drift_entries": []}, "embeddings": "updated", "errors": []}}]]
+]

@@ -26,13 +26,19 @@ def _stale_prs(branches: list[dict]) -> list[dict]:
     return [{"pr_number": b["pr_number"], "age_days": b["pr_age_days"]} for b in branches if b.get("pr_number") is not None]
 
 
+def _detail(source: dict) -> str:
+    """What follows a source's name in the body: the commits and the file count of an updated source, the error of a failed one."""
+    if source.get("status") == "updated":
+        return f": {source.get('old_sha')} -> {source.get('new_sha')}, {source.get('files_changed')} files changed"
+    return f": {source['error']}" if source.get("error") else ""
+
+
 def _body(report: dict) -> str:
     sources = report["sources"]
     lines = ["## Sources", ""]
     for heading, status in (("Updated", "updated"), ("Current", "current"), ("Failed", "failed"), ("Skipped as manual", "skipped-manual")):
         for source in (s for s in sources if s.get("status") == status):
-            detail = source.get("error") or f"{source.get('old_sha')} -> {source.get('new_sha')}, {source.get('files_changed')} files changed"
-            lines.append(f"- {heading}: `{source.get('id')}` ({source.get('type')}): {detail}")
+            lines.append(f"- {heading}: `{source.get('id')}` ({source.get('type')})" + _detail(source))
     if not sources:
         lines.append("- none looked at")
     changes = report["index_changes"]

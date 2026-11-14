@@ -253,6 +253,8 @@ class Corpus:
     def scripts(self, case: str | None = None, **tokens: str) -> Path:
         """A filled copy of `tests/scripts/<case or ok>/`, in a temporary directory; its path.
 
+        A node the case has no file for is played from `tests/scripts/ok/`.
+
         A script is a template. `@CORPUS@` becomes the corpus directory, `@CLONE@` the clone, `@UPSTREAM@` the upstream,
         `@OLD_SHA@` the `last_commit_sha` the corpus holds now, `@NEW_SHA@` the upstream's head, `@OLD_SHA7@` and `@NEW_SHA7@` their first seven characters, `@TODAY@` today's date;
         `tokens` add or replace tokens: `scripts("ok", FILE="a.md")` fills `@FILE@`.
@@ -266,11 +268,13 @@ class Corpus:
         }
         out = self.next_dir(f"scripts-{case}")
         out.mkdir()
-        for file in sorted((SCRIPTS / case).glob("*.json")):
+        files = {file.name: file for file in sorted((SCRIPTS / "ok").glob("*.json"))}
+        files.update({file.name: file for file in sorted((SCRIPTS / case).glob("*.json"))})
+        for name, file in files.items():
             text = file.read_text()
             for token, value in fill.items():
                 text = text.replace(f"@{token}@", json.dumps(value)[1:-1])
-            (out / file.name).write_text(text)
+            (out / name).write_text(text)
         return out
 
 

@@ -1,0 +1,3 @@
+[
+  [["exit", {"outcome": "done", "outputs": {"sources": [{"id": "docs", "type": "git", "status": "current", "old_sha": "@OLD_SHA7@", "new_sha": "@OLD_SHA7@", "files_changed": 0}], "index_changes": {"added": 0, "modified": 0, "removed": 0, "stale_entries": []}, "embeddings": "skipped", "embeddings_lag": null, "errors": []}}]]
+]
