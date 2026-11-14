@@ -88,56 +88,75 @@ The suite builds a corpus and its upstream in `test-tmp/` and uses a stand-in `g
 
 ## Acceptance runs
 
-Run on 2026-11-15 (local time; the run records' UTC times are 2026-11-14, 13:13 to 13:20). Nothing was pushed and no pull request was opened.
+Run on 2026-11-15 (local time; the run records' UTC times are 2026-11-14). Two passes: the first, 13:13 to 13:20 UTC, with commit `0ecf951`; the second, 13:33 to 13:40 UTC, after `b53deb0`, which made `apply_scan` keep the layout of `index.yaml`. Nothing was pushed and no pull request was opened.
 
-### Steps 1 and 2: the fixture corpora, `claude-haiku-5-5`
+### Steps 1 and 2: the fixture corpora
 
-`uv run pytest tests/model -m model -q`, each test once, one after the other: both passed on the first run.
+`uv run pytest tests/model -m model -q`, each test once, one after the other, on each model. Both tests passed on the first run on both: `claude-haiku-5-5` in the first pass, `claude-sonnet-5-5` (the pass bar) in the second.
 
-| Test | Result | Model calls (refresh / scan / enrich) | Wall time |
-|---|---|---|---|
-| `test_the_fixture_corpus_is_refreshed_and_a_lost_commit_fails_its_source` (step 1, and Review Focus 2) | passed | first job 27 (15 / 4 / 8); second job 10 (refresh only) | 62 s and 22 s; 96 s with the fixture |
-| `test_the_same_nodes_refresh_a_second_corpus_and_its_pull_request_goes_where_the_parameter_says` (step 2, criterion 11) | passed | 29 (17 / 3 / 9) | 70 s; 76 s with the fixture |
+| Test | Model | Result | Model calls (refresh / scan / enrich) | Wall time |
+|---|---|---|---|---|
+| `test_the_fixture_corpus_is_refreshed_and_a_lost_commit_fails_its_source` (step 1, and Review Focus 2) | haiku | passed | first job 27 (15 / 4 / 8); second job 10 (refresh only) | 62 s and 22 s; 96 s with the fixture |
+| the same | sonnet | passed | first job 21 (11 / 3 / 7); second job 8 (refresh only) | 62 s and 21 s; 96 s with the fixture |
+| `test_the_same_nodes_refresh_a_second_corpus_and_its_pull_request_goes_where_the_parameter_says` (step 2, criterion 11) | haiku | passed | 29 (17 / 3 / 9) | 70 s; 76 s with the fixture |
+| the same | sonnet | passed | 24 (13 / 3 / 8) | 67 s; 73 s with the fixture |
 
 The first job refreshes the fixture corpus (`docs:a.md` modified, `docs:d.md` added, `docs:c.md` deleted upstream): the source is `updated` at the upstream's head, `a.md` is re-scanned and not stale, `d.md` has an entry, `c.md` has none, `index.md` is rendered again, there is one commit on a new branch, and the record lists the source and the two entries enriched. Then the upstream's history is rewritten (one new root commit; the commit the corpus tracks is unreachable) and the job runs again on a clean copy of the source: the source is `failed` with "commit ... is not in the history of main", its entries stay as they were, nothing is committed (`no changes`), the exit code is 0. The second test uses a corpus with another name, another source id (`guide`) and another docs root (`manual/`), the same node files, `--param CORPUS_REPO=someone/other --param PUSH=true`: the branch is pushed to the test's own bare repository and the stand-in `gh` is called for `pr list` and `pr create`, both with `--repo someone/other` and no other.
 
 ### Step 3: Polars, without pushing, `claude-sonnet-5-5`
 
-The corpus is a fresh clone of `https://github.com/hiivmind/hiivmind-corpus-data` made for the run, in `~/agent-core-scratch/hiivmind-corpus-data/` (not the owner's working clone, which is older), at `b56f6ce`. From the instance directory:
+The corpus is a fresh clone of `https://github.com/hiivmind/hiivmind-corpus-data` made for the runs, in `~/agent-core-scratch/hiivmind-corpus-data/` (not the owner's working clone, which is older), at `b56f6ce`. From the instance directory:
 
 ```bash
 uv run agent-core job instance.yaml refresh --settings config/polars.yaml \
   --param CORPUS_PATH=$HOME/agent-core-scratch/hiivmind-corpus-data/hiivmind-corpus-polars --param PUSH=false
 ```
 
-The run needs the real `gh`: the job runs `gh pr list --repo hiivmind/hiivmind-corpus-data` (it only reads; `PUSH=false` leaves `gh pr create` and `gh pr close` out), and it found no open refresh pull request. It exited 0 in 3 min 50 s (the record: 13:16:28 to 13:20:12 UTC) with status `ok` and no failed node run.
+The run needs the real `gh`: the job runs `gh pr list --repo hiivmind/hiivmind-corpus-data` (it only reads; `PUSH=false` leaves `gh pr create` and `gh pr close` out), and it found no open refresh pull request. Run twice: the first time on the fresh clone, with `0ecf951`; then, after `b53deb0`, on a fresh state of the same clone (`main` checked out, the first run's local branch deleted, its `.source/` working copy of Polars removed, the tree clean). Both runs exited 0 with status `ok` and no failed node run.
 
-| What | Figure |
-|---|---|
-| Sources | 1: `polars`, `https://github.com/pola-rs/polars`, `docs/source`, git; `updated` `5075c53` to `36ea0f9` |
-| Files | 190 files under `docs/source` upstream (87 Markdown); 26 changed between the two commits, of which 20 have an index entry (`modified` 20, `added` 0, `removed` 0) |
-| Entries | 112 in the index before and after (the fresh clone's index is not the 111 of the owner's older copy); 37 stale before the run, 52 to scan after the refresh (37, plus the 20 modified, 5 of them already stale), 26 after the run |
-| Scans | 2 node runs at the same time (batches of 30 and 22 files); 26 entries came back from the scans and 26 files had no scan; 26 enriched, 26 skipped, 26 under "Needs attention" |
-| Verification | sampled 10, failed 0, no drift; 1 new concept candidate (`Contributing`: 3 entries), nothing written to `graph.yaml` |
-| Embeddings | `no-model` (`detect.py` printed it): not updated, lag 5, as before |
-| Commit | one, `corpus: refresh 2026-11-15`, on `automated/corpus-refresh-polars-2026-11-15` in the scratch clone: `config.yaml` (6 lines: `last_commit_sha`, `last_indexed_at`, `index.last_updated_at`), `index.yaml`, `index.md`; its message is the report. No pull request (`pr_url` null) |
+| What | First run (`0ecf951`) | Second run (`b53deb0`) |
+|---|---|---|
+| Wall time | 3 min 50 s (record 13:16:28 to 13:20:12 UTC) | 4 min 6 s (record 13:36:13 to 13:40:14 UTC) |
+| Sources | 1: `polars`, `https://github.com/pola-rs/polars`, `docs/source`, git; `updated` `5075c53` to `36ea0f9` | the same source, `5075c53` to `43d7572` (the upstream moved in between) |
+| Files | 190 files under `docs/source` upstream (87 Markdown); 26 changed between the two commits, of which 20 have an index entry (`modified` 20, `added` 0, `removed` 0) | the same counts |
+| Entries | 112 in the index before and after (the fresh clone's index is not the 111 of the owner's older copy); 37 stale before the run, 52 to scan after the refresh (37, plus the 20 modified, 5 of them already stale), 26 after the run | the same |
+| Scans | 2 node runs at the same time (batches of 30 and 22 files); 26 entries came back from the scans and 26 files had no scan; 26 enriched, 26 skipped, 26 under "Needs attention" | the same, and the same entries |
+| Verification | sampled 10, failed 0, no drift; 1 new concept candidate (`Contributing`: 3 entries), nothing written to `graph.yaml` | the same |
+| Embeddings | `no-model` (`detect.py` printed it): not updated, lag 5, as before | the same |
+| Commit | one, `corpus: refresh 2026-11-15`, on `automated/corpus-refresh-polars-2026-11-15` in the scratch clone (`ed6ba7a`): `config.yaml` (6 lines: `last_commit_sha`, `last_indexed_at`, `index.last_updated_at`), `index.yaml`, `index.md`; its message is the report. No pull request (`pr_url` null) | the same files, `235609d` |
+| `index.yaml` in the commit | **2,647 lines added, 1,500 removed**: the whole file, rewritten in another layout | **1,192 lines added, 158 removed**, 94 hunks, every one inside one of the 26 enriched entries (one line, `meta.generated_at`, apart); the other 86 entries and every other line are as they were |
+| `index.md` in the commit | 56 lines changed | 59 lines changed |
 
-Model calls and tokens for each node run, from `record.json` (`tokens_sent` is all the input of the run's calls, cached or not; the record keeps no count of output tokens):
+The 1,350 changed lines of the second run are the 26 entries themselves. All 26 had no `path`, `keywords`, `content_type`, `size`, `headings` or `grep_hint` (97 of the 112 entries of this index had no `path` before the run, 71 have none after it), so each gains them, about 46 lines an entry, with the new summary and tags.
+
+Model calls and tokens for each node run, from `record.json` (`tokens_sent` is all the input of the run's calls, cached or not; the record keeps no count of output tokens). The scans are `scan#2` (30 files) and `scan#3` (22 files).
+
+First run:
 
 | Node run | Model calls | `tokens_sent` | Read from cache | Written to cache | Not cached |
 |---|---|---|---|---|---|
 | `refresh#1` | 18 | 508,781 | 456,435 (89.7%) | 52,308 | 38 |
-| `scan#2` (30 files) | 4 | 163,625 | 91,177 (55.7%) | 72,438 | 10 |
-| `scan#3` (22 files) | 4 | 113,339 | 66,010 (58.2%) | 47,319 | 10 |
+| `scan#2` | 4 | 163,625 | 91,177 (55.7%) | 72,438 | 10 |
+| `scan#3` | 4 | 113,339 | 66,010 (58.2%) | 47,319 | 10 |
 | `enrich#4` | 11 | 612,320 | 542,057 (88.5%) | 70,239 | 24 |
 | Total | 37 | 1,398,065 | 1,155,679 (82.7%) | 242,304 (17.3%) | 82 |
 
-What went right: all four node runs ended `done` on the first run, with no question to the person and no failed run in the record; the refresh resolved the tracked commit in the shallow clone and recorded the new commit and time with edits of `config.yaml` that touch only those lines; the enriched entries I read (summaries, keywords, headings, concepts from the existing graph) are good. The procedures did not need a fix, so the run was not repeated.
+Second run:
+
+| Node run | Model calls | `tokens_sent` | Read from cache | Written to cache | Not cached |
+|---|---|---|---|---|---|
+| `refresh#1` | 17 | 497,933 | 447,583 (89.9%) | 50,314 | 36 |
+| `scan#2` | 4 | 163,955 | 92,614 (56.5%) | 71,331 | 10 |
+| `scan#3` | 4 | 113,339 | 67,449 (59.5%) | 45,880 | 10 |
+| `enrich#4` | 12 | 681,164 | 610,069 (89.6%) | 71,069 | 26 |
+| Total | 37 | 1,456,391 | 1,217,715 (83.6%) | 238,594 (16.4%) | 82 |
+
+What went right: all four node runs of each run ended `done` on the first try, with no question to the person and no failed run in the record; the refresh resolved the tracked commit in the shallow clone and recorded the new commit and time with edits of `config.yaml` that touch only those lines; the enriched entries I read (summaries, keywords, headings, concepts from the existing graph) are good. The procedures did not need a fix, so neither run was repeated for one.
 
 What went wrong, or is not as it should be:
 
-- **`index.yaml` is rewritten from top to bottom.** `apply_scan` writes the whole file with PyYAML, and the index on `main` of `hiivmind-corpus-data` is in another layout (list items indented under their key, other quoting) than the one the writer produces; the owner's older copy, which the round-trip test reads, was in the writer's layout. The diff of `index.yaml` is 2,647 lines added and 1,500 removed for 26 entries that changed, which makes the pull request's index diff unreadable, though the entries I read back look right; the file's layout is not kept. A round-trip of the index on `main` through the writer is not byte-identical (3,093 changed lines); with indented lists it is 174. This is for the owner to decide before step 4: `apply_scan` could edit the entries in place or keep the file's layout.
-- **26 stale entries point at files that are not in the source.** They are the 25 `polars-on-premises/...` entries and `polars-cloud/run/distributed-engine.md`, stale since 2026-06-30 (16) or 2026-07-06 (10), and no such file exists under `docs/source` at `5075c53` or at `36ea0f9`. The refresh cannot see them (they are not in the diff between the two commits), the scans find no file, so they stay stale and are listed under "Needs attention", as Review Focus 5 expects. They need a decision about the data (remove the entries), not a change to the job.
+- **`index.yaml` was rewritten from top to bottom (first run; fixed).** `apply_scan` wrote the whole file with PyYAML, and the index on `main` of `hiivmind-corpus-data` is in another layout (list items indented under their key, other quoting) than the one the writer produced; the owner's older copy, which the first round-trip test read, was in the writer's layout. The commit's diff of `index.yaml` was 2,647 lines added and 1,500 removed for 26 entries that changed, unreadable as a pull request's index diff. `b53deb0` writes only the entries that changed, in the layout the file has; the second run's diff is the one in the table.
+- **26 stale entries point at files that are not in the source.** They are the 25 `polars-on-premises/...` entries and `polars-cloud/run/distributed-engine.md`, stale since 2026-06-30 (16) or 2026-07-06 (10), and no such file exists under `docs/source` at `5075c53` or at either head. The refresh cannot see them (they are not in the diff between the two commits), the scans find no file, so they stay stale and are listed under "Needs attention", as Review Focus 5 expects, in both runs. They need a decision about the data (remove the entries), not a change to the job.
 - **The embeddings stay 5 entries behind**: `detect.py` prints `no-model` on this machine, so `enrich` does not embed (it never downloads the model during a refresh).
 - **Noise on the terminal**: the filesystem MCP server prints a line for each request and, after eleven, a Node `MaxListenersExceededWarning`; the job itself prints nothing, its summary is in `record.json`.
 
