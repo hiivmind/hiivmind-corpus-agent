@@ -1,16 +1,21 @@
 """`stale_files` and `apply_scan`: finding the stale entries, and merging the scans into `index.yaml`."""
 
+import difflib
 import shutil
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 import yaml
 
 from agent_core.tools.function import FunctionSource
 from tests.helpers import ROOT
-from tools.index import apply_scan, load_index, save_index, stale_files
+from tools.index import apply_scan, load_index, stale_files, write_entries
 
-POLARS = Path("/home/nathanielramm/git/hiivmind/hiivmind-corpus-data/hiivmind-corpus-polars/index.yaml")
+CLONE = Path("/home/nathanielramm/git/hiivmind/hiivmind-corpus-data")
+INDEX = "hiivmind-corpus-polars/index.yaml"
+POLARS = CLONE / INDEX
 
 
 def scanned(path: str, summary: str) -> dict:
@@ -100,23 +105,64 @@ def test_nothing_enriched_leaves_the_index_file_alone(corpus_stale):
     assert (index.stat().st_mtime_ns, index.read_bytes()) == before
 
 
-def test_an_unchanged_polars_index_round_trips_byte_identical(tmp_path):                         # R12
-    copy = tmp_path / "index.yaml"
+def polars_on_main(tmp_path: Path) -> Path | None:
+    """The Polars index as `origin/main` of the owner's corpus clone has it, copied into `tmp_path`; read only."""
+    shown = subprocess.run(["git", "-C", str(CLONE), "show", f"origin/main:{INDEX}"], capture_output=True, text=True)
+    if shown.returncode:
+        return None
+    copy = tmp_path / "main" / "index.yaml"
+    copy.parent.mkdir()
+    copy.write_text(shown.stdout)
+    return copy
+
+
+def polars_working_copy(tmp_path: Path) -> Path | None:
+    if not POLARS.is_file():
+        return None
+    copy = tmp_path / "working" / "index.yaml"
+    copy.parent.mkdir()
     shutil.copy(POLARS, copy)
-    save_index(copy, load_index(copy))
-    assert copy.read_bytes() == POLARS.read_bytes()
+    return copy
 
 
-def test_merging_into_the_polars_index_changes_only_the_scanned_entry(tmp_path):
-    shutil.copy(POLARS, tmp_path / "index.yaml")
-    settings = SimpleNamespace(CORPUS_PATH=tmp_path)
-    before = load_index(tmp_path / "index.yaml")
-    assert "path" not in before["entries"][0]
-    r = apply_scan([{"source": "polars", "files": ["index.md"], "entries": [scanned("index.md", "Rescanned.")], "error": None}], settings)
-    after = load_index(tmp_path / "index.yaml")
+def either_polars(tmp_path: Path, which: str) -> Path:
+    copy = (polars_on_main if which == "main" else polars_working_copy)(tmp_path)
+    if copy is None:
+        pytest.skip(f"the {which} version of the Polars index is not on this machine")
+    return copy
+
+
+@pytest.mark.parametrize("which", ["main", "working"])
+def test_an_unchanged_polars_index_is_written_back_byte_identical(tmp_path, which):               # R12
+    copy = either_polars(tmp_path, which)
+    before = copy.read_bytes()
+    write_entries(copy, {})
+    assert copy.read_bytes() == before
+    r = apply_scan([{"source": "polars", "files": ["index.md"], "entries": [], "error": "no_exit"}], SimpleNamespace(CORPUS_PATH=copy.parent))
+    assert r["enriched"] == [] and copy.read_bytes() == before
+
+
+@pytest.mark.parametrize("which", ["main", "working"])
+def test_merging_into_the_polars_index_changes_only_the_scanned_entry(tmp_path, which):
+    copy = either_polars(tmp_path, which)
+    before_text = copy.read_text()
+    before = load_index(copy)
+    r = apply_scan([{"source": "polars", "files": ["index.md"], "entries": [scanned("index.md", "Rescanned.")], "error": None}], SimpleNamespace(CORPUS_PATH=copy.parent))
+    after = load_index(copy)
     assert r == {"enriched": ["polars:index.md"], "skipped": []}
     assert after["meta"] == before["meta"] and after["entries"][1:] == before["entries"][1:]
     assert after["entries"][0]["path"] == "index.md" and after["entries"][0]["summary"] == "Rescanned."
+    changed = [d for d in difflib.unified_diff(before_text.splitlines(), copy.read_text().splitlines(), lineterm="", n=0) if d[0] in "+-" and d[:3] not in ("+++", "---")]
+    assert 0 < len(changed) < 40, f"{len(changed)} lines changed"
+
+
+def test_an_updated_entry_is_written_in_the_layout_of_the_file(tmp_path):
+    copy = either_polars(tmp_path, "main")
+    apply_scan([{"source": "polars", "files": ["index.md"], "entries": [scanned("index.md", "Rescanned.")], "error": None}], SimpleNamespace(CORPUS_PATH=copy.parent))
+    lines = copy.read_text().splitlines()
+    first = lines.index("  - id: polars:index.md")
+    assert lines[first + 1] == "    source: polars" and "      - rescanned" in lines[first : first + 40]   # indented sequences, entries two in
+    assert any(line.startswith("    summary: Rescanned.") for line in lines[first : first + 40])
 
 
 async def test_the_function_tools_take_their_arguments_as_json_values(corpus_stale):

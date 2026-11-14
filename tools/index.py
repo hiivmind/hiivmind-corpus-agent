@@ -4,6 +4,8 @@
 at the same time and change nothing, are going on.
 """
 
+import re
+import textwrap
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -18,9 +20,69 @@ def load_index(path: Path) -> dict:
     return yaml.safe_load(path.read_text()) or {}
 
 
-def save_index(path: Path, index: dict) -> None:
-    """Keys in the order the file has them, text as written: an unchanged index is written back byte for byte."""
-    path.write_text(yaml.safe_dump(index, sort_keys=False, allow_unicode=True))
+ENTRY_START = re.compile(r"^( *)- ")
+
+
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def _split(text: str) -> tuple[list[str], list[list[str]], list[str]]:
+    """The lines of an index file as `(head, entry blocks, tail)`: `head` runs to the first entry, `tail` starts at the first
+    line after the entries that is not one of them. Entries are the items of the `entries:` list, at whatever indent it has."""
+    lines = text.splitlines(keepends=True)
+    after = next((i + 1 for i, line in enumerate(lines) if line.rstrip() == "entries:"), len(lines))
+    first = next((i for i in range(after, len(lines)) if ENTRY_START.match(lines[i])), len(lines))
+    base = _indent(lines[first]) if first < len(lines) else 0
+    blocks: list[list[str]] = []
+    end = len(lines)
+    for i in range(first, len(lines)):
+        line = lines[i]
+        if ENTRY_START.match(line) and _indent(line) == base:
+            blocks.append([line])
+        elif line.strip() and _indent(line) <= base:
+            end = i
+            break
+        else:
+            blocks[-1].append(line)
+    return lines[:first], blocks, lines[end:]
+
+
+def _renderer(blocks: list[list[str]]):
+    """A function that writes one entry in the layout the file has: its indent, whether a list under a key is indented, and
+    whether long text is wrapped (at 80, as PyYAML does) or left on one line."""
+    base = _indent(blocks[0][0]) if blocks else 0
+    lines = [line for block in blocks for line in block]
+    nested = any(
+        prev.rstrip().endswith(":") and line.lstrip().startswith("- ") and _indent(line) > _indent(prev)
+        for prev, line in zip(lines, lines[1:])
+    )
+    width = 4096 if any(len(line) > 120 for line in lines) else 80
+
+    class Dumper(yaml.SafeDumper):
+        def increase_indent(self, flow=False, indentless=False):
+            return super().increase_indent(flow, False if nested else indentless)
+
+    def render(entry: dict) -> list[str]:
+        dumped = yaml.dump([entry], Dumper=Dumper, sort_keys=False, allow_unicode=True, width=width)
+        return textwrap.indent(dumped, " " * base).splitlines(keepends=True)
+
+    return render
+
+
+def write_entries(path: Path, changed: dict[str, dict]) -> None:
+    """Rewrite the entries of the index file at `path` whose id is in `changed`, and nothing else: every other line, and the
+    layout (indent, list style, line wrapping) the file has, stay as they are. No entry changed leaves the file untouched."""
+    if not changed:
+        return
+    text = path.read_text()
+    head, blocks, tail = _split(text)
+    render = _renderer(blocks)
+    out = list(head)
+    for block in blocks:
+        entry = yaml.safe_load("".join(block))[0]
+        out += render(changed[entry["id"]]) if entry["id"] in changed else block
+    path.write_text("".join(out + tail))
 
 
 def _source_of(entry: dict) -> str:
@@ -82,6 +144,5 @@ def apply_scan(scans: list, settings) -> dict:
                 entry["path"] = file
                 entry["stale"], entry["stale_since"], entry["last_indexed"] = False, None, now
                 enriched.append(id)
-    if enriched:
-        save_index(index_file, index)
+    write_entries(index_file, {id: by_id[id] for id in enriched})
     return {"enriched": enriched, "skipped": skipped}
