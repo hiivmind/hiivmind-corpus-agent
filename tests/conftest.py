@@ -248,14 +248,15 @@ class Corpus:
         """A filled copy of `tests/scripts/<case or ok>/`, in a temporary directory; its path.
 
         A script is a template. `@CORPUS@` becomes the corpus directory, `@CLONE@` the clone, `@UPSTREAM@` the upstream,
-        `@OLD_SHA@` the `last_commit_sha` the corpus holds now, `@NEW_SHA@` the upstream's head, `@TODAY@` today's date;
+        `@OLD_SHA@` the `last_commit_sha` the corpus holds now, `@NEW_SHA@` the upstream's head, `@OLD_SHA7@` and `@NEW_SHA7@` their first seven characters, `@TODAY@` today's date;
         `tokens` add or replace tokens: `scripts("ok", FILE="a.md")` fills `@FILE@`.
         """
         case = case or "ok"
         old = yaml.safe_load((self.path / "config.yaml").read_text())["sources"][0]["last_commit_sha"]
         fill = {
             "CORPUS": str(self.path), "CLONE": str(self.clone), "UPSTREAM": str(self.upstream), "OLD_SHA": old,
-            "NEW_SHA": self.upstream_head, "TODAY": date.today().isoformat(), **tokens,
+            "NEW_SHA": self.upstream_head, "OLD_SHA7": old[:7], "NEW_SHA7": self.upstream_head[:7],
+            "TODAY": date.today().isoformat(), **tokens,
         }
         out = self.next_dir(f"scripts-{case}")
         out.mkdir()
