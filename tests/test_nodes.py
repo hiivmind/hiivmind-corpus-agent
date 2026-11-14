@@ -134,3 +134,56 @@ def test_refresh_keeps_the_recipe_for_git_sources():
     assert "git -C <clone> diff --name-status" in text
     assert "Never use the GitHub compare API" in text
     assert "the source's `type` is not `git`" in text and "is not handled by this instance yet" in text
+
+
+def test_enrich_declares_its_contract(instance):
+    node = instance.nodes["enrich"]
+    assert set(node.inputs) == {"entries"}
+    assert set(node.outputs) == {"concepts_assigned", "new_concept_candidates", "verification", "embeddings", "errors"}
+    assert node.outputs["concepts_assigned"]["type"] == "integer"
+    assert node.outputs["new_concept_candidates"]["items"]["required"] == ["label", "evidence"]
+    assert node.outputs["verification"]["required"] == ["sampled", "failed", "drift_entries"]
+    assert node.outputs["embeddings"]["enum"] == ["updated", "skipped", "no-model", "not-installed"]
+    assert node.exits == ("done", "failed") and node.context == "none"
+    assert node.allowed_tools == ("shell__run", "files__read_text_file", "files__edit_file", "files__write_file")
+
+
+async def test_enrich_contract(corpus_stale, run):
+    corpus_stale.set_concepts("docs:a.md", [])
+    result = await run("enrich", {"entries": ["docs:a.md"]})
+    assert result["outcome"] == "done"
+    assert result["outputs"] == {
+        "concepts_assigned": 1, "new_concept_candidates": [],
+        "verification": {"sampled": 1, "failed": 0, "drift_entries": []}, "embeddings": "skipped", "errors": [],
+    }
+
+
+async def test_enrich_script_does_what_its_outputs_say(corpus_stale, run):
+    """The `ok` script's calls are real: the concept is in the index, the metadata is saved, `index.md` is rendered."""
+    corpus_stale.set_concepts("docs:a.md", [])
+    await run("enrich", {"entries": ["docs:a.md"]})
+    assert corpus_stale.entry("docs:a.md")["concepts"] == ["concept"]
+    assert corpus_stale.entry("docs:b.md")["concepts"] == ["concept"]
+    index = yaml.safe_load((corpus_stale.path / "index.yaml").read_text())
+    assert index["meta"]["entry_count"] == len(index["entries"]) and index["meta"]["generated_at"].startswith(date.today().isoformat())
+    rendered = (corpus_stale.path / "index.md").read_text()   # rendered by the real render-index.sh
+    assert f"Generated: {date.today().isoformat()}" in rendered
+
+
+async def test_enrich_procedure_is_filled_with_the_corpus_and_the_entries(corpus_stale):
+    text = await filled_procedure(corpus_stale, "enrich", {"entries": ["docs:a.md", "docs:b.md"]})
+    assert f"Corpus: {corpus_stale.path}." in text
+    assert "docs:a.md" in text.partition("Entries:")[2].partition("\n")[0] and "docs:b.md" in text.partition("Entries:")[2].partition("\n")[0]
+    assert "{{" not in text
+    assert f"--index {corpus_stale.path}/index.yaml --source-root {corpus_stale.path}/.source/ --config {corpus_stale.path}/config.yaml" in text
+
+
+def test_enrich_keeps_the_recipe_of_enrich_headless():
+    """Phases 3 to 5 keep their constraints in the skill's words."""
+    text = (ROOT / "skills" / "enrich" / "SKILL.md").read_text()
+    assert "Do not write them to `graph.yaml`" in text and "at least two tag overlaps" in text
+    assert "Take the first ten target entries" in text and "uv run scripts/verify_entries.py" in text
+    assert "bash ./render-index.sh index.yaml" in text
+    assert 0 < text.index("uv run scripts/detect.py") < text.index("uv run scripts/embed.py")
+    assert "Never download the model" in text
+    assert "LOAD" not in text and "CALL `load` with the path `reference/graph.md`" in text

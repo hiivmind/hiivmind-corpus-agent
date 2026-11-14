@@ -223,6 +223,12 @@ class Corpus:
             assert {e["id"] for e in data["entries"] if e.get("stale")} >= set(ids), f"no such entries: {ids}"
         self._edit("index.yaml", change, "test: mark entries stale")
 
+    def set_concepts(self, id: str, concepts: list[str]) -> None:
+        def change(data: dict) -> None:
+            [entry] = [e for e in data["entries"] if e["id"] == id]
+            entry["concepts"] = concepts
+        self._edit("index.yaml", change, "test: set concepts")
+
     def break_lance_dir(self) -> None:
         """Put a file where the embeddings directory goes, so that `lance_meta.py` cannot open it; committed."""
         target = self.path / "index-embeddings.lance"
