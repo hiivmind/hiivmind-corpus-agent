@@ -51,3 +51,7 @@ The copied documents name these scripts and documents. They stay as written; the
 
 - Scripts: `scripts/chunk.py`, `scripts/detect_nav.py`, `scripts/detect_large_files.py`, `scripts/search.py`, `scripts/split_by_headings.py`
 - Documents: `reference/extraction.md`, `reference/chunking.md`, `patterns/config-parsing.md`, `index-generation.md`, `index-rendering.md`, `index-reference.md`, `status.md`, `tool-detection.md`, `scanning.md`, `registry-graph.md`, `headless-contract.md`, `discovery.md`
+
+## Behaviour kept from the skills
+
+- `skills/refresh/SKILL.md` (from `hiivmind-corpus-refresh-headless` at `d9ba1ad`, phases 1 to 5): the embedding path of Phase 5 (step 29: `detect.py`, `embed.py`, the statuses `updated`, `no-model` and `not-installed`) is not reached in a run that gets there from step 27. Every entry the refresh adds or modifies is stale, so when `added` or `modified` is above 0 step 28 defers the embedding, and when both are 0 step 27 skips it. The skill has the same two rules in the same order and the same result; they are kept as they are, and the `enrich` node embeds after the summaries are written.

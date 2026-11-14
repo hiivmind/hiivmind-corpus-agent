@@ -123,3 +123,14 @@ async def test_refresh_procedure_is_filled_with_the_corpus_and_the_sources(corpu
 async def test_refresh_procedure_says_not_given_when_no_sources_are(corpus):
     text = await filled_procedure(corpus, "refresh", {})
     assert "Sources to update: not given." in text
+
+
+def test_refresh_keeps_the_recipe_for_git_sources():
+    """The steps for a git source keep the skill's constraints in its words (the task's git constraints)."""
+    text = (ROOT / "skills" / "refresh" / "SKILL.md").read_text()
+    assert "git clone --filter=blob:none --sparse --depth=50" in text and "/.source/" in text
+    assert "sparse-checkout set <docs_root>" in text
+    assert 0 < text.index("--shallow-since") < text.index("--unshallow")
+    assert "git -C <clone> diff --name-status" in text
+    assert "Never use the GitHub compare API" in text
+    assert "the source's `type` is not `git`" in text and "is not handled by this instance yet" in text
