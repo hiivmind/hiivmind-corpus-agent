@@ -10,3 +10,5 @@ settings:
   class: settings.CorpusSettings
   files: [config/base.yaml]
   env_prefix: HIIVMIND_CORPUS_
+tools:
+  corpus_status: tools.status:corpus_status
