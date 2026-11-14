@@ -186,4 +186,13 @@ def test_enrich_keeps_the_recipe_of_enrich_headless():
     assert "bash ./render-index.sh index.yaml" in text
     assert 0 < text.index("uv run scripts/detect.py") < text.index("uv run scripts/embed.py")
     assert "Never download the model" in text
+    assert '--entries "<ids>"' in text
+    assert "It prints anything else, or nothing" in text
+    assert "directory groups, one for each directory" in text and "directory `.`" in text
+    assert "go to step 18: an index that was not rendered is not embedded" in text
     assert "LOAD" not in text and "CALL `load` with the path `reference/graph.md`" in text
+
+
+def test_refresh_falls_back_when_detect_prints_something_else():
+    text = (ROOT / "skills" / "refresh" / "SKILL.md").read_text()
+    assert "It prints anything else, or nothing" in text and "`detect.py printed <output>`" in text

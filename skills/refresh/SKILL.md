@@ -107,6 +107,7 @@ Outputs: `embeddings`, `embeddings_lag`.
     - It prints `ready`: CALL `shell__run` with `uv run scripts/embed.py {{settings.CORPUS_PATH}}/index.yaml {{settings.CORPUS_PATH}}/index-embeddings.lance/`. If its exit code is 0, set `embeddings` to `updated`; otherwise set it to `skipped` and add `embedding failed: <error>` to `errors`.
     - It prints `no-model`: set `embeddings` to `no-model`. Never download the model during a refresh.
     - It prints `not-installed`: set `embeddings` to `not-installed`.
+    - It prints anything else, or nothing: set `embeddings` to `skipped` and add `detect.py printed <output>` to `errors`, `<output>` being what it printed or `nothing`.
 30. Work out the lag, as the document's "Embedding Lag" section says. CALL `shell__run` with the command `uv run scripts/lance_meta.py {{settings.CORPUS_PATH}}/index-embeddings.lance/`.
     - Its exit code is 2: there is no `_meta` table, and `embeddings_lag` is null.
     - Its exit code is another one that is not 0: `embeddings_lag` is null and `embedding lag not computed: <error>` is added to `errors`.
@@ -123,3 +124,4 @@ Outputs: `embeddings`, `embeddings_lag`.
 | A deepen leaves the commit unresolved (step 15) | The source is `failed`; the other sources go on. |
 | An edit of the index fails (steps 23, 24) | Add `index update failed: <error>` to `errors`; the changes saved stay. |
 | An edit of `config.yaml` fails (step 24) | Add `config save failed: <error>` to `errors`. |
+| `detect.py` prints something other than the three statuses (step 29) | `embeddings` is `skipped`; add `detect.py printed <output>` to `errors`. |
