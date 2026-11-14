@@ -15,3 +15,5 @@ tools:
   repo_prepare: tools.repo:repo_prepare
   repo_branch: tools.repo:repo_branch
   repo_finish: tools.repo:repo_finish
+  stale_files: tools.index:stale_files
+  apply_scan: tools.index:apply_scan
