@@ -48,31 +48,32 @@ def _age_days(created_at: str) -> int:
 
 
 def repo_prepare(settings) -> dict:
-    """Stop on a dirty tree; else check out `BASE_BRANCH`, pull it, and list the earlier refresh branches and their open pull requests.
+    """Stop on a dirty tree; else check out `BASE_BRANCH`, fetch `origin` and fast-forward, and list the earlier refresh branches.
 
     Returns `main_advanced` (the pull moved `BASE_BRANCH`) and `stale_branches`: `branch`, `pr_number` and `pr_age_days`
-    (both `None` when the branch has no open pull request), one per `origin/<BRANCH_PREFIX>*` branch.
+    (both `None` when the branch has no open pull request): each `origin/<BRANCH_PREFIX>-*` branch with an open pull
+    request, or with commits that `BASE_BRANCH` does not have.
     """
     dirty = _git(settings, "status", "--porcelain")
     if dirty:
         raise RepoError(f"the working tree is dirty: {'; '.join(line.strip() for line in dirty.splitlines())}")
     _git(settings, "checkout", settings.BASE_BRANCH)
     before = _git(settings, "rev-parse", "HEAD")
-    _git(settings, "pull", "--ff-only", "--prune", REMOTE, settings.BASE_BRANCH)
+    _git(settings, "fetch", "--prune", REMOTE)   # every branch of origin, so that none is missed and deleted ones go
+    _git(settings, "merge", "--ff-only", f"{REMOTE}/{settings.BASE_BRANCH}")
     advanced = _git(settings, "rev-parse", "HEAD") != before
 
     listed = _git(settings, "for-each-ref", "--format=%(refname:short)", f"refs/remotes/{REMOTE}").splitlines()
     stale = []
     for ref in sorted(listed):
-        if not ref.startswith(f"{REMOTE}/{settings.BRANCH_PREFIX}"):
+        if not ref.startswith(f"{REMOTE}/{settings.BRANCH_PREFIX}-"):   # `...-test-` is not `...-testing-`
             continue
         branch = ref.removeprefix(f"{REMOTE}/")
         prs = _pull_requests(settings, branch)
-        stale.append({
-            "branch": branch,
-            "pr_number": prs[0]["number"] if prs else None,
-            "pr_age_days": _age_days(prs[0]["createdAt"]) if prs else None,
-        })
+        if prs:
+            stale.append({"branch": branch, "pr_number": prs[0]["number"], "pr_age_days": _age_days(prs[0]["createdAt"])})
+        elif int(_git(settings, "rev-list", "--count", f"{settings.BASE_BRANCH}..{ref}")) > 0:   # work no one has seen
+            stale.append({"branch": branch, "pr_number": None, "pr_age_days": None})
     return {"main_advanced": advanced, "stale_branches": stale}
 
 
@@ -95,7 +96,7 @@ def repo_finish(branch: str, title: str, body: str, stale_branches: list, settin
     Returns `has_changes`, `commit_sha`, `pr_url` (`None` unless a pull request was opened) and `superseded_prs`.
     """
     corpus = Path(settings.CORPUS_PATH)
-    _git(settings, "add", "-A", "--", str(corpus))
+    _git(settings, "add", "-A", "--", ".")   # the corpus directory: git runs in it
     if _run(["git", "diff", "--cached", "--quiet"], corpus, ok=(0, 1)).returncode == 0:
         _git(settings, "checkout", settings.BASE_BRANCH)
         _git(settings, "branch", "-d", branch)
@@ -121,10 +122,13 @@ def repo_finish(branch: str, title: str, body: str, stale_branches: list, settin
         number = stale.get("pr_number")
         if number is None:
             continue
-        _run(
-            ["gh", "pr", "close", str(number), "--repo", settings.CORPUS_REPO, "--comment",
-             f"Superseded by {url} (regenerated from current upstream).", "--delete-branch"],
-            corpus,
-        )
+        try:
+            _run(
+                ["gh", "pr", "close", str(number), "--repo", settings.CORPUS_REPO, "--comment",
+                 f"Superseded by {url} (regenerated from current upstream).", "--delete-branch"],
+                corpus,
+            )
+        except RepoError as e:
+            raise RepoError(f"{e}; the new pull request is {url}; pull requests already closed: {superseded or 'none'}") from None
         superseded.append(number)
     return {"has_changes": True, "commit_sha": sha, "pr_url": url, "superseded_prs": superseded}

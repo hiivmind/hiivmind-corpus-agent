@@ -1,5 +1,8 @@
 """The repository steps: the template's Phase 2 (prepare) and Phase 4 (finish), as code. Every git command runs in the fixture clone."""
 
+import os
+import subprocess
+import sys
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
@@ -44,10 +47,52 @@ def test_prepare_lists_the_stale_branches_with_their_open_pull_requests(corpus):
     assert gh_calls() == [["pr", "list", "--repo", "test/test", "--head", branch, "--state", "open", "--json", "number,createdAt"]]
 
 
-def test_a_stale_branch_without_an_open_pull_request_is_listed_with_none(corpus):
-    corpus.set_gh_open_prs([])
-    stale = repo_prepare(corpus.settings)["stale_branches"]
-    assert len(stale) == 1 and stale[0]["pr_number"] is None and stale[0]["pr_age_days"] is None
+def _push_branch(corpus, name: str, *, with_commit: bool) -> None:
+    """Give origin a branch `name`, from a second clone of origin, with a commit of its own or at main's head."""
+    other = corpus.next_dir("other")
+    subprocess.run(["git", "clone", "-q", str(corpus.origin), str(other)], check=True)
+    for key, value in (("user.name", "Test"), ("user.email", "test@example.com"), ("commit.gpgsign", "false")):
+        subprocess.run(["git", "-C", str(other), "config", key, value], check=True)
+    subprocess.run(["git", "-C", str(other), "checkout", "-q", "-b", name], check=True)
+    if with_commit:
+        (other / "work.txt").write_text("work\n")
+        subprocess.run(["git", "-C", str(other), "add", "work.txt"], check=True)
+        subprocess.run(["git", "-C", str(other), "commit", "-q", "-m", "work"], check=True)
+    subprocess.run(["git", "-C", str(other), "push", "-q", "origin", name], check=True)
+
+
+def test_a_branch_with_commits_and_no_open_pull_request_is_listed_with_none(corpus, today):
+    branch = f"automated/corpus-refresh-test-{today}-2"
+    _push_branch(corpus, branch, with_commit=True)
+    assert repo_prepare(corpus.settings)["stale_branches"] == [{"branch": branch, "pr_number": None, "pr_age_days": None}]
+
+
+def test_a_branch_equal_to_main_with_no_open_pull_request_is_not_listed(corpus):
+    corpus.set_gh_open_prs([])      # a branch of origin at main's head, and `gh pr list` printing nothing
+    assert repo_prepare(corpus.settings)["stale_branches"] == []
+
+
+def test_a_branch_a_second_clone_pushed_is_found(corpus, today):
+    branch = f"automated/corpus-refresh-test-{today}-2"
+    assert corpus.git("branch", "-r", "--list", f"origin/{branch}") == ""      # this clone has never heard of it
+    _push_branch(corpus, branch, with_commit=True)
+    assert [b["branch"] for b in repo_prepare(corpus.settings)["stale_branches"]] == [branch]
+
+
+def test_a_branch_deleted_on_origin_is_not_listed(corpus, today):
+    branch = f"automated/corpus-refresh-test-{today}-2"
+    _push_branch(corpus, branch, with_commit=True)
+    corpus.git("fetch", "-q", "origin")
+    assert branch in corpus.git("branch", "-r")                                 # this clone knows it
+    subprocess.run(["git", "-C", str(corpus.origin), "branch", "-D", branch], check=True, capture_output=True)
+    assert repo_prepare(corpus.settings)["stale_branches"] == []
+
+
+def test_a_longer_prefix_is_another_prefix(corpus, today):
+    mine, other = f"automated/corpus-refresh-test-{today}-2", f"automated/corpus-refresh-testing-{today}"
+    _push_branch(corpus, mine, with_commit=True)
+    _push_branch(corpus, other, with_commit=True)
+    assert [b["branch"] for b in repo_prepare(corpus.settings)["stale_branches"]] == [mine]
 
 
 def test_a_second_branch_on_one_day_gets_a_suffix(corpus, today):                  # Review Focus 3
@@ -76,7 +121,8 @@ def test_with_push_off_it_commits_and_stops(corpus):
 
 def test_with_push_on_it_opens_the_pull_request_then_closes_the_superseded_ones(corpus_pushing):
     b = repo_branch(corpus_pushing.settings)["branch"]; corpus_pushing.write("index.yaml", "changed: true\n")
-    r = repo_finish(b, "corpus: refresh", "body", [{"branch": "automated/corpus-refresh-test-2026-11-01", "pr_number": 12, "pr_age_days": 13}], corpus_pushing.settings)
+    old_branch = f"automated/corpus-refresh-test-{(date.today() - timedelta(days=13)).isoformat()}"
+    r = repo_finish(b, "corpus: refresh", "body", [{"branch": old_branch, "pr_number": 12, "pr_age_days": 13}], corpus_pushing.settings)
     assert [c[:2] for c in gh_calls()] == [["pr", "create"], ["pr", "close"]] and r["superseded_prs"] == [12] and r["pr_url"].startswith("https://")
     create, close = gh_calls()
     assert ["--repo", "test/test", "--base", "main", "--head", b] == create[2:8] and "corpus: refresh" in create and "body" in create
@@ -116,3 +162,22 @@ def test_a_failed_push_names_the_command_and_leaves_the_branch(corpus_pushing): 
     with pytest.raises(RepoError, match="git push"):
         repo_finish(b, "corpus: refresh", "body", [], corpus_pushing.settings)
     assert b in corpus_pushing.git("branch", "--list") and gh_calls() == []
+
+
+def test_a_failed_close_names_the_pull_requests_already_closed(corpus_pushing, monkeypatch):
+    gh = corpus_pushing.bin / "gh"
+    refuser = corpus_pushing.next_dir("refusing-bin")
+    refuser.mkdir()
+    (refuser / "gh").write_text(
+        f"#!{sys.executable}\nimport subprocess, sys\n"
+        f"if sys.argv[1:3] == ['pr', 'close'] and sys.argv[3] == '13':\n    sys.exit('cannot close 13')\n"
+        f"sys.exit(subprocess.run(['{gh}', *sys.argv[1:]]).returncode)\n"
+    )
+    (refuser / "gh").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{refuser}{os.pathsep}{os.environ['PATH']}")
+    b = repo_branch(corpus_pushing.settings)["branch"]; corpus_pushing.write("index.yaml", "changed: true\n")
+    stale = [{"branch": "x", "pr_number": n, "pr_age_days": 1} for n in (12, 13, 14)]
+    with pytest.raises(RepoError, match=r"gh pr close 13.*already closed: \[12\]") as e:
+        repo_finish(b, "corpus: refresh", "body", stale, corpus_pushing.settings)
+    assert "https://github.com/test/test/pull/1" in str(e.value)
+    assert [c[2] for c in gh_calls() if c[:2] == ["pr", "close"]] == ["12"]
