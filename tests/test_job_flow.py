@@ -1,7 +1,7 @@
 """The refresh job, as `agent-core job` runs it, on a corpus in a temporary directory and the scripted backend."""
 
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 
 def test_nothing_to_do_makes_no_model_call(job, corpus):                      # criterion 1
@@ -95,10 +95,67 @@ def test_a_refresh_that_commits_nothing_ends_as_no_changes(job, corpus):
     assert corpus.git("branch", "--list", "automated/*") == "" and corpus.git("branch", "--show-current") == "main"
 
 
-def test_the_lag_is_zero_after_an_enrich_that_updates_the_embeddings(job, corpus):
-    code, out, record = job("embeddings_updated")   # the refresh deferred the embeddings and reported a lag of 5
+def _yesterday() -> str:
+    return (date.today() - timedelta(days=1)).isoformat() + "T00:00:00Z"
+
+
+def test_the_lag_is_read_again_after_an_enrich_that_leaves_no_model(job, corpus):
+    corpus.make_lance(_yesterday())   # the embeddings are newer than every entry: lag 0 before the refresh
+    code, out, record = job("embeddings_no_model")
     s = record["summary"]
-    assert code == 0 and s["embeddings"] == "updated" and s["embeddings_lag"] == 0
+    assert code == 0 and s["embeddings"] == "no-model" and s["enriched_ids"] == ["docs:a.md", "docs:d.md"]
+    assert s["embeddings_lag"] == 2   # the two entries `apply_scan` has just indexed
+    assert "\n- no-model, lag 2" in corpus.git("log", "-1", "--format=%B")
+
+
+def test_the_lag_is_not_guessed_to_be_zero_when_the_enrich_says_updated(job, corpus):
+    corpus.make_lance(_yesterday())   # the script says "updated" and leaves the embeddings as they were
+    code, out, record = job("embeddings_updated")
+    assert code == 0 and record["summary"]["embeddings"] == "updated" and record["summary"]["embeddings_lag"] == 2
+
+
+def test_without_embeddings_there_is_no_lag_figure(job, corpus):
+    code, out, record = job("embeddings_updated")
+    assert code == 0 and record["summary"]["embeddings"] == "updated" and record["summary"]["embeddings_lag"] is None
+
+
+def test_an_unknown_source_is_not_already_current(job, corpus):
+    corpus.set_last_sha(corpus.upstream_head)
+    corpus.set_repo_url("/nowhere")             # the pre-check cannot read the upstream: refresh_needed is false, nothing is known
+    code, out, record = job("nothing_to_refresh")
+    s = record["summary"]
+    assert code == 0 and s["status"] == "no changes" and [r["node"] for r in record["runs"]] == ["refresh"]
+    assert any("/nowhere" in e for e in s["errors"]) and any("freshness unknown for `docs`" in e for e in s["errors"])
+
+
+def test_the_body_says_index_md_may_be_stale_when_the_enrich_did_not_finish(job, corpus):
+    code, out, record = job("enrich_fails")
+    message = corpus.git("log", "-1", "--format=%B")
+    assert code == 0 and "enrich" in [r["node"] for r in record["runs"]] and record["summary"]["errors"]
+    assert "`index.md` may be out of step with `index.yaml`" in message
+
+
+def test_the_body_does_not_say_so_when_the_enrich_finished(job, corpus):
+    code, out, record = job()
+    assert "out of step" not in corpus.git("log", "-1", "--format=%B")
+
+
+def test_a_body_lists_at_most_fifty_ids_in_each_list():
+    from jobs.refresh import _body
+    report = {
+        "sources": [], "index_changes": {"added": 0, "modified": 0, "removed": 0}, "enriched": 0,
+        "skipped": 120, "skipped_entries": [{"id": f"docs:s{i}.md", "reason": "r"} for i in range(120)],
+        "verification": {"sampled": 1, "failed": 60, "drift_entries": [f"docs:d{i}.md" for i in range(60)]},
+        "new_concept_candidates": [], "embeddings": "skipped", "embeddings_lag": None,
+        "errors": [f"error {i}" for i in range(51)], "needs_attention": [f"docs:n{i}.md" for i in range(200)],
+    }
+    body = _body(report)
+    assert body.count("docs:s") == 50 and "  - and 70 more\n" in body and "docs:s49.md" in body and "docs:s50.md" not in body
+    assert body.count("drift: ") == 50 and "  - and 10 more\n" in body
+    assert body.count("`docs:n") == 50 and "- and 150 more\n" in body
+    assert body.count("- error ") == 50 and "- and 1 more\n" in body
+    exactly = _body({**report, "skipped_entries": report["skipped_entries"][:50]})
+    assert exactly.count("docs:s") == 50 and "  - and" not in exactly.split("## Verification")[0]
 
 
 def test_the_body_names_each_source_by_what_became_of_it(job, corpus):

@@ -94,7 +94,7 @@ def _render(entries: list[dict]) -> str:
 
 
 class Corpus:
-    """A corpus repository clone and everything around it. Every helper that changes the corpus commits, so the tree stays clean."""
+    """A corpus repository clone and everything around it. Every helper that changes the corpus commits and pushes, so the tree stays clean and main is not ahead of origin."""
 
     def __init__(
         self, base: Path, *, at_root: bool, push: bool, extra_files: int, stale: tuple[str, ...], checkout: bool,
@@ -200,11 +200,16 @@ class Corpus:
         assert len(found) == 1, f"{len(found)} entries with id {id}"
         return found[0]
 
+    def _save(self, message: str) -> None:
+        """Commit on main and push it: `repo_prepare` refuses a main that is ahead of origin's."""
+        _commit(self.clone, message)
+        _git(self.clone, "push", "-q", "origin", "HEAD:refs/heads/main")
+
     def _edit(self, file: str, change, message: str) -> None:
         data = yaml.safe_load((self.path / file).read_text())
         change(data)
         _dump(self.path / file, data)
-        _commit(self.clone, message)
+        self._save(message)
 
     # --- helpers that set up state; each commits --------------------------------------------------------------------
     def set_last_sha(self, sha: str) -> None:
@@ -239,7 +244,13 @@ class Corpus:
         if target.is_dir():
             shutil.rmtree(target)
         target.write_text("not a lance directory\n")
-        _commit(self.clone, "test: break the embeddings directory")
+        self._save("test: break the embeddings directory")
+
+    def make_lance(self, generated_at: str) -> None:
+        """Give the corpus an embeddings directory whose `_meta` table says it was made at `generated_at`; committed."""
+        script = RENDER_INDEX.parent / "make_lance.py"
+        subprocess.run(["uv", "run", str(script), str(self.path / "index-embeddings.lance"), generated_at], check=True, capture_output=True)
+        self._save("test: add embeddings")
 
     def break_origin(self) -> None:
         """Make origin refuse every push; fetching and pulling still work."""

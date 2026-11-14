@@ -1,0 +1,14 @@
+[
+  [["files__read_text_file", {"path": "@CORPUS@/index.yaml"}]],
+  [["files__read_text_file", {"path": "@CORPUS@/graph.yaml"}]],
+  [["load", {"path": "reference/graph.md"}]],
+  [["files__edit_file", {"path": "@CORPUS@/index.yaml", "edits": [{"oldText": "- id: docs:a.md\n  source: docs\n  path: a.md\n  title: A\n  summary: The file a.md.\n  tags:\n  - test\n  keywords:\n  - a\n  concepts: []\n", "newText": "- id: docs:a.md\n  source: docs\n  path: a.md\n  title: A\n  summary: The file a.md.\n  tags:\n  - test\n  keywords:\n  - a\n  concepts:\n  - concept\n"}]}]],
+  [["shell__run", {"command": "uv run scripts/verify_entries.py --index @CORPUS@/index.yaml --source-root @CORPUS@/.source/ --config @CORPUS@/config.yaml --entries \"docs:a.md\""}]],
+  [["shell__run", {"command": "date -u +%Y-%m-%dT%H:%M:%SZ"}]],
+  [["shell__run", {"command": "yq '.entries | length' @CORPUS@/index.yaml"}]],
+  [["files__edit_file", {"path": "@CORPUS@/index.yaml", "edits": [{"oldText": "  generated_at: '2026-01-01T00:00:00Z'\n  entry_count: 3\n", "newText": "  generated_at: '@TODAY@T12:00:00Z'\n  entry_count: 3\n"}]}]],
+  [["shell__run", {"command": "cd @CORPUS@ && bash ./render-index.sh index.yaml"}]],
+  [["load", {"path": "reference/embeddings.md"}]],
+  [["shell__run", {"command": "test -d @CORPUS@/index-embeddings.lance && echo present || echo absent"}]],
+  [["exit", {"outcome": "done", "outputs": {"concepts_assigned": 1, "new_concept_candidates": [], "verification": {"sampled": 1, "failed": 0, "drift_entries": []}, "embeddings": "no-model", "errors": []}}]]
+]

@@ -17,18 +17,20 @@ It is a copy of the existing refresh (`hiivmind-corpus` and `hiivmind-corpus-sch
 ```bash
 cd <this directory>
 uv sync
-uv run agent-core job instance.yaml refresh --settings config/polars.yaml
+uv run agent-core job instance.yaml refresh --settings config/polars.yaml --param PUSH=true
 ```
+
+`config/base.yaml` sets `PUSH: false`, so a run pushes only when it says `--param PUSH=true`. **`config/polars.yaml` points `CORPUS_PATH` at the owner's working clone** (`~/git/hiivmind/hiivmind-corpus-data/hiivmind-corpus-polars`): the command above, as written, checks out `BASE_BRANCH` in that clone, commits in it and pushes from it. For any other clone, give `--param CORPUS_PATH=...` as below.
 
 A corpus is named by its settings file (`config/polars.yaml`, `config/ibis.yaml`), layered over `config/base.yaml`:
 
 | Setting | Meaning |
 |---|---|
 | `CORPUS_PATH` | the directory holding the corpus's `config.yaml`: the root of its repository, or a directory inside it |
-| `CORPUS_REPO` | `owner/name` on GitHub: where the pull request goes, and where `gh pr list` looks for the open ones |
+| `CORPUS_REPO` | `owner/name` on GitHub: where the pull request goes, and where `gh pr list` looks for the open ones. It must be the repository `origin` of the clone points to: with `PUSH` true, `repo_finish` stops before pushing when `origin` is a GitHub repository with another name (`origin` that is not a GitHub URL, a path for example, is not checked) |
 | `BRANCH_PREFIX` | the branches the job makes are `<BRANCH_PREFIX>-<date>`, then `-2`, `-3` ... when the name is taken |
 | `BASE_BRANCH` | default `main` |
-| `PUSH` | default `true`; `false` commits on the new local branch and stops: nothing is pushed and no pull request is made |
+| `PUSH` | `false` in `config/base.yaml`; `false` commits on the new local branch and stops: nothing is pushed and no pull request is made |
 
 `--param KEY=VALUE` beats the environment (`HIIVMIND_CORPUS_<KEY>`), which beats the files. So a run on a clone somewhere else, that does not push, is
 
@@ -36,18 +38,20 @@ A corpus is named by its settings file (`config/polars.yaml`, `config/ibis.yaml`
 uv run agent-core job instance.yaml refresh --settings config/polars.yaml --param CORPUS_PATH=/path/to/hiivmind-corpus-data/hiivmind-corpus-polars --param PUSH=false
 ```
 
-and `--param CORPUS_REPO=someone/fork` sends the pull request to another repository. A setting that no file, variable or parameter gives stops the run before it starts, naming the setting (exit code 2).
+and `CORPUS_REPO` follows the clone: a clone whose `origin` is `someone/fork` needs `--param CORPUS_REPO=someone/fork`, because the branch is pushed to `origin` and the pull request is opened on `CORPUS_REPO`, and the job refuses to push when the two differ. A setting that no file, variable or parameter gives stops the run before it starts, naming the setting (exit code 2).
 
 What the job does, in order:
 
-1. `repo_prepare`: stops when the working tree is dirty; checks out `BASE_BRANCH`, fetches `origin`, fast-forwards, and lists the earlier refresh branches and their open pull requests.
-2. `corpus_status`, the freshness pre-check (no model): when every source is current and the embeddings are not behind, the job ends with status `already current` and has made no model call, no branch.
+1. `repo_prepare`: stops when the working tree is dirty or when `BASE_BRANCH` has commits that `origin/BASE_BRANCH` does not; checks out `BASE_BRANCH`, fetches `origin`, fast-forwards, and lists the earlier refresh branches and their open pull requests.
+2. `corpus_status`, the freshness pre-check (no model): when every source is current (none `unknown`: a source whose freshness could not be read puts the status's errors and its id into the summary's `errors`, and the job refreshes as if the pre-check had failed) and the embeddings are not behind, the job ends with status `already current` and has made no model call, no branch.
 3. `repo_branch`, then the `refresh` node: updates each source that is behind, marks the index entries of changed files stale, adds an entry for each new file, removes the entry of each deleted one, records the new commits, renders `index.md`.
 4. `stale_files`, then one `scan` node run for each batch of at most 30 stale files, all at the same time: each writes the metadata of its files and changes nothing. `apply_scan` is the only writer of the index between them.
 5. The `enrich` node: assigns existing concepts, checks a sample of the new summaries against the files, renders the index, embeds it when the embedding model is ready.
-6. `repo_finish`: commits what changed under `CORPUS_PATH` (the commit message is the report); with `PUSH`, pushes the branch, opens the pull request and closes the earlier refresh pull requests it supersedes. Without changes it deletes the branch: status `no changes`.
+6. `repo_finish`: stops when anything outside `CORPUS_PATH` is staged, commits what changed under `CORPUS_PATH` (the commit message is the report); with `PUSH`, pushes the branch, opens the pull request and closes the earlier refresh pull requests it supersedes. Without changes it deletes the branch: status `no changes`.
 
 A source of a kind other than git is reported and not refreshed (`skipped-manual`). A source that fails (its upstream cannot be reached, the commit the corpus was indexed at is no longer in its history) is reported `failed` with the reason and its entries stay as they were; the other sources go on, and the job exits 0.
+
+Every `git` and `gh` command has a timeout of 300 s and the freshness check's `git ls-remote` one of 60 s: a source that times out is `unknown`; any other command that times out ends the job with an error naming it. `embeddings_lag` is read again by `corpus_status` after the scans and the enrich, not taken from the nodes. The pull request's body lists at most 50 ids in each list, then `and N more`.
 
 The run is recorded in `runs/refresh-<UTC start>-<six hex digits>/record.json` (`--run-dir` chooses another directory; `runs/` is not committed): the status, the summary, the failed node runs, `model_calls`, and for each node run its `model_calls`, `tokens_sent`, `cache_read` and `cache_written`. The summary holds `status` (`refreshed`, `no changes` or `already current`), `branch`, `sources` (`id`, `type`, `status`, `old_sha`, `new_sha`, `files_changed`, `error`), `index_changes` (`added`, `modified`, `removed`), `enriched` and `enriched_ids`, `skipped` and `skipped_entries`, `needs_attention` (the entries still stale at the end, whatever the cause), `verification`, `new_concept_candidates`, `embeddings` and `embeddings_lag`, `errors`, `pr_url`, `superseded_prs` and `stale_prs`. The exit code is 0 when the job ran to its end, 1 when it failed (a dirty tree, a refresh that gave no result, a push or `gh` that failed), 2 when it could not start.
 
@@ -71,7 +75,7 @@ The job, the other tools and the contracts of the nodes do not change.
 The core has no scheduler (JOB-11); whatever the host provides (cron, a systemd timer, CI) starts the job. The line is:
 
 ```bash
-cd <instance dir> && uv run agent-core job instance.yaml refresh --settings config/<corpus>.yaml
+cd <instance dir> && uv run agent-core job instance.yaml refresh --settings config/<corpus>.yaml --param PUSH=true
 ```
 
 For a repository of several corpora, the scheduler runs that line once for each settings file, one after another, not at the same time: the corpora share one working tree, and a run starts by checking that it is clean and by checking out the base branch.

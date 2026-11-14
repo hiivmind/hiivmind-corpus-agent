@@ -11,6 +11,7 @@ from datetime import date
 from agent_core.core.node_runner import NodeRunError
 
 BATCH = 30   # files for one scan run
+LISTED = 50  # ids of one list in the pull request's body; the rest are counted
 
 
 def _batches(by_source: dict[str, list[str]]) -> list[tuple[str, list[str]]]:
@@ -33,12 +34,22 @@ def _detail(source: dict) -> str:
     return f": {source['error']}" if source.get("error") else ""
 
 
-def _body(report: dict) -> str:
+def _listed(items: list, line, indent: str = "") -> list[str]:
+    """`line(item)` for the first `LISTED` items, then `and N more`: a body must stay far below GitHub's size limit."""
+    lines = [line(item) for item in items[:LISTED]]
+    if len(items) > LISTED:
+        lines.append(f"{indent}- and {len(items) - LISTED} more")
+    return lines
+
+
+def _body(report: dict, *, enrich_finished: bool = True) -> str:
     sources = report["sources"]
     lines = ["## Sources", ""]
     for heading, status in (("Updated", "updated"), ("Current", "current"), ("Failed", "failed"), ("Skipped as manual", "skipped-manual")):
-        for source in (s for s in sources if s.get("status") == status):
-            lines.append(f"- {heading}: `{source.get('id')}` ({source.get('type')})" + _detail(source))
+        lines += _listed(
+            [s for s in sources if s.get("status") == status],
+            lambda source: f"- {heading}: `{source.get('id')}` ({source.get('type')})" + _detail(source),
+        )
     if not sources:
         lines.append("- none looked at")
     changes = report["index_changes"]
@@ -48,23 +59,25 @@ def _body(report: dict) -> str:
         f"- Enriched: {report['enriched']}",
         f"- Skipped: {report['skipped']}",
     ]
-    lines += [f"  - `{s['id']}`: {s['reason']}" for s in report["skipped_entries"]]
+    lines += _listed(report["skipped_entries"], lambda s: f"  - `{s['id']}`: {s['reason']}", "  ")
+    if not enrich_finished:
+        lines.append("- `index.md` may be out of step with `index.yaml`: the enrich step did not finish, and it is what renders it last")
     verification = report["verification"]
     lines += ["", "## Verification", ""]
     if verification is None:
         lines.append("- not run")
     else:
         lines.append(f"- Sampled {verification.get('sampled')}, failed {verification.get('failed')}")
-        lines += [f"  - drift: `{e}`" for e in verification.get("drift_entries") or []]
+        lines += _listed(verification.get("drift_entries") or [], lambda e: f"  - drift: `{e}`", "  ")
     lines += ["", "## New concept candidates (for the reviewer's decision)", ""]
     candidates = report["new_concept_candidates"]
-    lines += [f"- {c.get('label')}: {', '.join(c.get('evidence') or [])}" for c in candidates] or ["- none"]
+    lines += _listed(candidates, lambda c: f"- {c.get('label')}: {', '.join(c.get('evidence') or [])}") or ["- none"]
     lag = report["embeddings_lag"]
     lines += ["", "## Embeddings", "", f"- {report['embeddings']}" + ("" if lag is None else f", lag {lag}")]
     if report["errors"]:
-        lines += ["", "## Errors", ""] + [f"- {e}" for e in report["errors"]]
+        lines += ["", "## Errors", ""] + _listed(report["errors"], lambda e: f"- {e}")
     if report["needs_attention"]:
-        lines += ["", "## Needs attention", "", "Entries still marked stale:"] + [f"- `{e}`" for e in report["needs_attention"]]
+        lines += ["", "## Needs attention", "", "Entries still marked stale:"] + _listed(report["needs_attention"], lambda e: f"- `{e}`")
     return "\n".join(lines) + "\n"
 
 
@@ -75,7 +88,11 @@ async def main(job) -> dict:
 
     try:   # the pre-check saves a branch and a model run; it is never a gate
         status = await job.call("corpus_status", {})
-        if not status["refresh_needed"] and status["embeddings_lag"] in (0, None):
+        unknown = [s["id"] for s in status["sources"] if s["freshness"] == "unknown"]
+        if unknown:   # "current" is not known: refresh as if the pre-check had failed
+            errors += status["errors"]
+            errors.append(f"corpus_status: freshness unknown for {', '.join(f'`{i}`' for i in unknown)}; refreshing anyway")
+        elif not status["refresh_needed"] and status["embeddings_lag"] in (0, None):
             return {"status": "already current", "stale_prs": stale_prs}
     except Exception as e:
         errors.append(f"corpus_status failed: {type(e).__name__}: {e}")
@@ -90,11 +107,12 @@ async def main(job) -> dict:
         errors.append(_reason(refresh, "refresh"))
     errors += found.get("errors") or []
     changes = found.get("index_changes") or {}
-    embeddings, lag = found.get("embeddings", "skipped"), found.get("embeddings_lag")
+    embeddings = found.get("embeddings", "skipped")
 
     enriched: list[str] = []
     skipped: list[dict] = []
     verification, candidates = None, []
+    enrich_finished = True
     stale = await job.call("stale_files", {})
     if stale["entry_ids"]:   # the index says what to scan, not the refresh's report
         batches = _batches(stale["by_source"])
@@ -117,13 +135,19 @@ async def main(job) -> dict:
             enrich = await job.run_node("enrich", {"entries": enriched})
             result = enrich.get("outputs") or {}
             if enrich["outcome"] != "done":
+                enrich_finished = False
                 errors.append(_reason(enrich, "enrich"))
             errors += result.get("errors") or []
             verification = result.get("verification")
             candidates = result.get("new_concept_candidates") or []
             if "embeddings" in result:   # the later of the two
                 embeddings = result["embeddings"]
-                lag = 0 if embeddings == "updated" else lag
+
+    try:   # the refresh node measured the lag before `apply_scan` marked entries indexed: measure it now
+        lag = (await job.call("corpus_status", {}))["embeddings_lag"]
+    except Exception as e:
+        lag = None
+        errors.append(f"corpus_status failed after the refresh, the embeddings lag is not known: {type(e).__name__}: {e}")
 
     needs_attention = (await job.call("stale_files", {}))["entry_ids"]   # whatever is still stale, from any cause
 
@@ -139,7 +163,7 @@ async def main(job) -> dict:
         "errors": errors,
     }
     finish = await job.call("repo_finish", {
-        "branch": branch, "title": f"corpus: refresh {date.today().isoformat()}", "body": _body(summary),
+        "branch": branch, "title": f"corpus: refresh {date.today().isoformat()}", "body": _body(summary, enrich_finished=enrich_finished),
         "stale_branches": prep["stale_branches"],
     })
     return {

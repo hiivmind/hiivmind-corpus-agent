@@ -60,7 +60,7 @@ def test_apply_replaces_the_scanned_fields_and_preserves_the_rest(corpus_stale):
 
 def test_an_entry_not_asked_for_is_ignored_and_a_missing_one_is_skipped(corpus_stale):   # Review Focus 5
     r = apply_scan([{"source": "docs", "files": ["a.md", "b.md"], "entries": [SCANNED_A, SCANNED_UNASKED], "error": None}], corpus_stale.settings)
-    assert r["enriched"] == ["docs:a.md"] and r["skipped"] == [{"id": "docs:b.md", "reason": "no scan returned for it"}]
+    assert r["enriched"] == ["docs:a.md"] and r["skipped"] == [{"id": "docs:b.md", "reason": "no scan returned for it (file unreadable or not in the source)"}]
     assert corpus_stale.entry("docs:b.md")["stale"] is True
     assert [e["id"] for e in yaml.safe_load((corpus_stale.path / "index.yaml").read_text())["entries"] if e["id"].endswith("z.md")] == []
 

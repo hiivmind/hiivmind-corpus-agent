@@ -12,7 +12,7 @@ from pathlib import Path
 import yaml
 
 REPLACED = ("title", "summary", "tags", "keywords", "category", "content_type", "size", "grep_hint", "headings")
-NOT_RETURNED = "no scan returned for it"
+NOT_RETURNED = "no scan returned for it (file unreadable or not in the source)"
 NOT_INDEXED = "no entry in the index"
 
 
@@ -115,8 +115,8 @@ def apply_scan(scans: list, settings) -> dict:
 
     `scans` has one item for each scan run, done or not: `{"source": str, "files": [str], "entries": [dict], "error": str | None}`.
     For each file of a batch: its entry is skipped with the batch's `error` as the reason if there is one; else updated from the
-    scanned entry whose `path` is that file; else skipped with the reason `no scan returned for it`. A scanned entry for a file
-    the batch did not ask for is ignored. An updated entry takes the nine scanned fields and keeps `id`, `source`, `links_to`,
+    scanned entry whose `path` is that file; else skipped with the reason `no scan returned for it (file unreadable or not in
+    the source)`. A scanned entry for a file the batch did not ask for is ignored. An updated entry takes the nine scanned fields and keeps `id`, `source`, `links_to`,
     `links_from`, `frontmatter` and `concepts`; `path` is set; `stale` is false, `stale_since` null, `last_indexed` now.
 
     Returns `enriched` (entry ids) and `skipped` (`id`, `reason`).

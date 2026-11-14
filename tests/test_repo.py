@@ -8,7 +8,8 @@ from datetime import date, datetime, timedelta, timezone
 import pytest
 
 from tests.helpers import gh_calls
-from tools.repo import RepoError, repo_branch, repo_finish, repo_prepare
+import tools.repo
+from tools.repo import RepoError, _github_name, repo_branch, repo_finish, repo_prepare
 
 
 def test_a_dirty_tree_stops_before_anything_changes(corpus):                       # Review Focus 1
@@ -93,6 +94,22 @@ def test_a_longer_prefix_is_another_prefix(corpus, today):
     _push_branch(corpus, mine, with_commit=True)
     _push_branch(corpus, other, with_commit=True)
     assert [b["branch"] for b in repo_prepare(corpus.settings)["stale_branches"]] == [mine]
+
+
+def test_the_rest_of_the_name_must_be_a_date_and_an_optional_number(corpus, today):
+    mine = [f"automated/corpus-refresh-test-{today}", f"automated/corpus-refresh-test-{today}-12"]
+    others = [f"automated/corpus-refresh-test-cloud-{today}", f"automated/corpus-refresh-test-{today}-x", "automated/corpus-refresh-test-2026"]
+    for name in mine + others:
+        _push_branch(corpus, name, with_commit=True)
+    assert [b["branch"] for b in repo_prepare(corpus.settings)["stale_branches"]] == sorted(mine)
+
+
+def test_a_local_base_branch_ahead_of_origin_stops_the_run(corpus):
+    corpus.write("local.txt", "unpushed\n")
+    corpus.git("add", "-A")
+    corpus.git("commit", "-q", "-m", "local only")
+    with pytest.raises(RepoError, match=r"main has 1 commit\(s\) that origin/main does not"):
+        repo_prepare(corpus.settings)
 
 
 def test_a_second_branch_on_one_day_gets_a_suffix(corpus, today):                  # Review Focus 3
@@ -181,3 +198,57 @@ def test_a_failed_close_names_the_pull_requests_already_closed(corpus_pushing, m
         repo_finish(b, "corpus: refresh", "body", stale, corpus_pushing.settings)
     assert "https://github.com/test/test/pull/1" in str(e.value)
     assert [c[2] for c in gh_calls() if c[:2] == ["pr", "close"]] == ["12"]
+
+
+def test_a_timeout_is_a_repo_error_naming_the_command(corpus, monkeypatch):
+    corpus.set_gh_open_prs([])                      # a refresh branch on origin, so that prepare calls `gh pr list`
+    slow = corpus.next_dir("slow-bin")
+    slow.mkdir()
+    (slow / "gh").write_text(f"#!{sys.executable}\nimport time\ntime.sleep(30)\n")
+    (slow / "gh").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{slow}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setattr(tools.repo, "TIMEOUT", 1)
+    with pytest.raises(RepoError, match=r"gh pr list.*did not finish in 1 s"):
+        repo_prepare(corpus.settings)
+
+
+def test_with_push_on_it_refuses_an_origin_that_is_another_github_repository(corpus_pushing):
+    b = repo_branch(corpus_pushing.settings)["branch"]; corpus_pushing.write("index.yaml", "changed: true\n")
+    corpus_pushing.git("remote", "set-url", "origin", "https://github.com/someone/sandbox.git")
+    head = corpus_pushing.git("rev-parse", "HEAD")
+    with pytest.raises(RepoError, match=r"someone/sandbox.*test/test"):
+        repo_finish(b, "corpus: refresh", "body", [], corpus_pushing.settings)
+    assert corpus_pushing.git("rev-parse", "HEAD") == head and gh_calls() == []   # nothing committed, pushed or opened
+
+
+def test_with_push_off_the_origin_is_not_looked_at(corpus):
+    b = repo_branch(corpus.settings)["branch"]; corpus.write("index.yaml", "changed: true\n")
+    corpus.git("remote", "set-url", "origin", "https://github.com/someone/sandbox.git")
+    assert repo_finish(b, "corpus: refresh", "body", [], corpus.settings)["has_changes"]
+
+
+@pytest.mark.parametrize("url, name", [
+    ("https://github.com/hiivmind/hiivmind-corpus-data.git", "hiivmind/hiivmind-corpus-data"),
+    ("https://github.com/hiivmind/hiivmind-corpus-data", "hiivmind/hiivmind-corpus-data"),
+    ("https://github.com/hiivmind/hiivmind-corpus-data/", "hiivmind/hiivmind-corpus-data"),
+    ("git@github.com:hiivmind/hiivmind-corpus-data.git", "hiivmind/hiivmind-corpus-data"),
+    ("ssh://git@github.com/hiivmind/hiivmind-corpus-data.git", "hiivmind/hiivmind-corpus-data"),
+    ("/tmp/test-tmp/origin.git", None),
+    ("file:///tmp/origin.git", None),
+    ("https://gitlab.com/hiivmind/hiivmind-corpus-data.git", None),
+])
+def test_the_github_name_of_a_remote_url(url, name):
+    assert _github_name(url) == name
+
+
+def test_an_origin_with_the_same_name_in_another_case_is_the_same_repository():
+    assert _github_name("git@github.com:Test/Test.git").lower() == "test/test"
+
+
+def test_a_file_staged_outside_the_corpus_directory_stops_the_commit(corpus):
+    b = repo_branch(corpus.settings)["branch"]; corpus.write("index.yaml", "changed: true\n"); corpus.write("../hiivmind-corpus-other/stray.txt", "x")
+    corpus.git("add", "hiivmind-corpus-other/stray.txt")       # what a model with a shell could do
+    head = corpus.git("rev-parse", "HEAD")
+    with pytest.raises(RepoError, match="staged outside.*hiivmind-corpus-other/stray.txt"):
+        repo_finish(b, "corpus: refresh", "body", [], corpus.settings)
+    assert corpus.git("rev-parse", "HEAD") == head

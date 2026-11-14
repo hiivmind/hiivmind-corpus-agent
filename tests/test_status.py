@@ -37,6 +37,22 @@ def test_an_unreachable_upstream_is_unknown_and_is_reported(corpus):
     assert s["sources"][0]["freshness"] == "unknown" and s["errors"] and s["refresh_needed"] is False
 
 
+def test_an_upstream_that_times_out_is_unknown_and_is_reported(corpus, tmp_path, monkeypatch):
+    import os, shutil, sys
+    import tools.sources.git
+    slow = tmp_path / "slow-bin"
+    slow.mkdir()
+    (slow / "git").write_text(
+        f"#!{sys.executable}\nimport os, sys, time\nif 'ls-remote' in sys.argv:\n    time.sleep(30)\n"
+        f"os.execv('{shutil.which('git')}', ['git', *sys.argv[1:]])\n"
+    )
+    (slow / "git").chmod(0o755)
+    monkeypatch.setenv("PATH", f"{slow}{os.pathsep}{os.environ['PATH']}")
+    monkeypatch.setattr(tools.sources.git, "TIMEOUT", 1)
+    s = corpus_status(corpus.settings)
+    assert s["sources"][0]["freshness"] == "unknown" and any("did not finish in 1 s" in e for e in s["errors"])
+
+
 def test_a_branch_the_upstream_does_not_have_is_unknown_and_is_reported(corpus):
     corpus.add_source({"id": "other", "type": "git", "repo_url": str(corpus.upstream), "branch": "no-such-branch", "last_commit_sha": "x"})
     s = corpus_status(corpus.settings)

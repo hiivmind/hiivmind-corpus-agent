@@ -4,6 +4,8 @@ import os
 import subprocess
 from pathlib import Path
 
+TIMEOUT = 60   # seconds for `git ls-remote`
+
 
 class GitSource:
     def freshness(self, source: dict, corpus: Path) -> tuple[str, str | None]:
@@ -13,9 +15,13 @@ class GitSource:
             return "unknown", f"source `{source['id']}` has no repo_url"
         # Never wait for a password: a pre-check that cannot ask anyone must fail instead.
         env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
-        done = subprocess.run(
-            ["git", "ls-remote", str(repo_url), f"refs/heads/{branch}"], capture_output=True, text=True, env=env,
-        )
+        try:
+            done = subprocess.run(
+                ["git", "ls-remote", str(repo_url), f"refs/heads/{branch}"], capture_output=True, text=True, env=env,
+                stdin=subprocess.DEVNULL, timeout=TIMEOUT,
+            )
+        except subprocess.TimeoutExpired:
+            return "unknown", f"source `{source['id']}`: git ls-remote {repo_url} did not finish in {TIMEOUT} s"
         if done.returncode != 0:
             why = " ".join(done.stderr.split()) or f"exit {done.returncode}"
             return "unknown", f"source `{source['id']}`: git ls-remote {repo_url} failed: {why}"

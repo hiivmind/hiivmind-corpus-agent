@@ -5,11 +5,15 @@ rewrites history, or touches a file outside `CORPUS_PATH`.
 """
 
 import json
+import re
 import subprocess
 from datetime import date, datetime, timezone
 from pathlib import Path
 
 REMOTE = "origin"
+TIMEOUT = 300   # seconds for one git or gh command
+BRANCH_SUFFIX = re.compile(r"\d{4}-\d{2}-\d{2}(-\d+)?")   # what `repo_branch` appends to the prefix
+GITHUB_URL = re.compile(r"github\.com[:/]+([^/\s]+)/([^/\s]+?)(?:\.git)?/*$", re.IGNORECASE)
 
 
 class RepoError(RuntimeError):
@@ -18,7 +22,9 @@ class RepoError(RuntimeError):
 
 def _run(command: list[str], cwd: Path, *, ok: tuple[int, ...] = (0,)) -> subprocess.CompletedProcess:
     try:
-        done = subprocess.run(command, cwd=cwd, capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        done = subprocess.run(command, cwd=cwd, capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=TIMEOUT)
+    except subprocess.TimeoutExpired:
+        raise RepoError(f"{' '.join(command)} (in {cwd}) did not finish in {TIMEOUT} s") from None
     except OSError as e:
         raise RepoError(f"{' '.join(command)}: cannot run: {e}") from None
     if done.returncode not in ok:
@@ -29,6 +35,12 @@ def _run(command: list[str], cwd: Path, *, ok: tuple[int, ...] = (0,)) -> subpro
 
 def _git(settings, *args: str) -> str:
     return _run(["git", *args], Path(settings.CORPUS_PATH)).stdout.strip()
+
+
+def _github_name(url: str) -> str | None:
+    """`owner/name` of a GitHub remote URL (https, ssh or scp-like), else `None`: a path or another host."""
+    found = GITHUB_URL.search(url.strip())
+    return f"{found.group(1)}/{found.group(2)}" if found else None
 
 
 def _pull_requests(settings, branch: str) -> list[dict]:
@@ -61,12 +73,16 @@ def repo_prepare(settings) -> dict:
     before = _git(settings, "rev-parse", "HEAD")
     _git(settings, "fetch", "--prune", REMOTE)   # every branch of origin, so that none is missed and deleted ones go
     _git(settings, "merge", "--ff-only", f"{REMOTE}/{settings.BASE_BRANCH}")
+    ahead = int(_git(settings, "rev-list", "--count", f"{REMOTE}/{settings.BASE_BRANCH}..HEAD"))
+    if ahead > 0:   # an ff-only merge says nothing when the local branch is ahead, and the pull request would carry these
+        raise RepoError(f"{settings.BASE_BRANCH} has {ahead} commit(s) that {REMOTE}/{settings.BASE_BRANCH} does not have")
     advanced = _git(settings, "rev-parse", "HEAD") != before
 
     listed = _git(settings, "for-each-ref", "--format=%(refname:short)", f"refs/remotes/{REMOTE}").splitlines()
     stale = []
     for ref in sorted(listed):
-        if not ref.startswith(f"{REMOTE}/{settings.BRANCH_PREFIX}-"):   # `...-test-` is not `...-testing-`
+        prefix = f"{REMOTE}/{settings.BRANCH_PREFIX}-"
+        if not ref.startswith(prefix) or not BRANCH_SUFFIX.fullmatch(ref.removeprefix(prefix)):   # not `...-testing-`, not `...-test-cloud-`
             continue
         branch = ref.removeprefix(f"{REMOTE}/")
         prs = _pull_requests(settings, branch)
@@ -96,7 +112,15 @@ def repo_finish(branch: str, title: str, body: str, stale_branches: list, settin
     Returns `has_changes`, `commit_sha`, `pr_url` (`None` unless a pull request was opened) and `superseded_prs`.
     """
     corpus = Path(settings.CORPUS_PATH)
+    if settings.PUSH:   # the pull request goes to CORPUS_REPO: the branch must be pushed there
+        origin = _github_name(_git(settings, "remote", "get-url", "--push", REMOTE))
+        if origin is not None and origin.lower() != settings.CORPUS_REPO.lower():
+            raise RepoError(f"{REMOTE} is {origin} but CORPUS_REPO is {settings.CORPUS_REPO}: nothing was pushed")
     _git(settings, "add", "-A", "--", ".")   # the corpus directory: git runs in it
+    prefix = _git(settings, "rev-parse", "--show-prefix")   # the corpus directory relative to the repository's root
+    outside = [p for p in _git(settings, "diff", "--cached", "--name-only", "-z").split("\0") if p and not p.startswith(prefix)]
+    if outside:
+        raise RepoError(f"staged outside {settings.CORPUS_PATH}, nothing was committed: {', '.join(outside)}")
     if _run(["git", "diff", "--cached", "--quiet"], corpus, ok=(0, 1)).returncode == 0:
         _git(settings, "checkout", settings.BASE_BRANCH)
         _git(settings, "branch", "-d", branch)
