@@ -1,6 +1,7 @@
 """`stale_files` and `apply_scan`: finding the stale entries, and merging the scans into `index.yaml`."""
 
 import difflib
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -11,7 +12,7 @@ import yaml
 
 from agent_core.tools.function import FunctionSource
 from tests.helpers import ROOT
-from tools.index import apply_scan, load_index, stale_files, write_entries
+from tools.index import apply_scan, drop_missing, load_index, stale_files, write_entries
 
 CLONE = Path("/home/nathanielramm/git/hiivmind/hiivmind-corpus-data")
 INDEX = "hiivmind-corpus-polars/index.yaml"
@@ -175,3 +176,136 @@ async def test_the_function_tools_take_their_arguments_as_json_values(corpus_sta
     assert await source.call("stale_files", {}, {}) == {"by_source": {"docs": ["a.md", "b.md"]}, "entry_ids": ["docs:a.md", "docs:b.md"]}
     r = await source.call("apply_scan", {"scans": [{"source": "docs", "files": ["a.md"], "entries": [SCANNED_A], "error": None}]}, {})
     assert r == {"enriched": ["docs:a.md"], "skipped": []}
+
+
+# --- drop_missing: the entries whose files are gone from the source ----------------------------------------------------
+
+def _blocks(text: str) -> list[str]:
+    """`index.yaml` as its head and then one string for each entry, each ending at its last line."""
+    return re.split(r"(?m)^(?=- id: )", text)
+
+
+def test_an_entry_whose_file_is_gone_is_removed_and_nothing_else_changes(corpus_stale):
+    index = corpus_stale.path / "index.yaml"
+    before = index.read_text()
+    (corpus_stale.path / ".source" / "docs" / "docs" / "a.md").unlink()   # the first of three entries; c.md is not in the checkout either
+    assert drop_missing(corpus_stale.settings) == {"removed": ["docs:a.md", "docs:c.md"]}
+    head, a, b, c = _blocks(before)
+    assert a.startswith("- id: docs:a.md") and b.startswith("- id: docs:b.md") and c.startswith("- id: docs:c.md")
+    assert index.read_text() == head + b
+    assert [e["id"] for e in load_index(index)["entries"]] == ["docs:b.md"]
+
+
+def test_a_checkout_that_is_not_there_removes_nothing(corpus):   # the refresh failed or never cloned it
+    index = corpus.path / "index.yaml"
+    before = index.read_bytes()
+    assert not (corpus.path / ".source").exists()
+    assert drop_missing(corpus.settings) == {"removed": []}
+    assert index.read_bytes() == before
+
+
+def test_a_section_entry_is_never_removed(corpus_stale):
+    corpus_stale.add_entry({"id": "docs:gone.md", "source": "docs", "path": "gone.md"})
+    corpus_stale.add_entry({"id": "docs:gone.md#intro", "source": "docs", "tier": "section", "parent": "docs:gone.md"})
+    assert drop_missing(corpus_stale.settings) == {"removed": ["docs:c.md", "docs:gone.md"]}
+    assert [e["id"] for e in load_index(corpus_stale.path / "index.yaml")["entries"]] == ["docs:a.md", "docs:b.md", "docs:gone.md#intro"]
+
+
+def test_the_file_is_found_from_the_path_or_else_the_id_under_the_docs_root(corpus_stale):
+    docs = corpus_stale.path / ".source" / "docs" / "docs"
+    (docs / "guide").mkdir()
+    (docs / "guide" / "here.md").write_text("# here\n")
+    corpus_stale.add_entry({"id": "docs:guide/here.md", "source": "docs"})                         # no path: the id gives it
+    corpus_stale.add_entry({"id": "docs:guide/gone.md", "source": "docs"})
+    corpus_stale.add_entry({"id": "docs:odd-id", "source": "docs", "path": "guide/here.md"})       # the path wins over the id
+    corpus_stale.add_entry({"id": "other:a.md", "path": "a.md"})                                  # no source `other` in config.yaml
+    assert drop_missing(corpus_stale.settings)["removed"] == ["docs:c.md", "docs:guide/gone.md"]
+
+
+@pytest.mark.parametrize("docs_root", [".", None])
+def test_a_docs_root_of_dot_or_none_means_the_root_of_the_checkout(corpus_stale, docs_root):
+    config = yaml.safe_load((corpus_stale.path / "config.yaml").read_text())
+    config["sources"][0].pop("docs_root")
+    if docs_root:
+        config["sources"][0]["docs_root"] = docs_root
+    (corpus_stale.path / "config.yaml").write_text(yaml.safe_dump(config))
+    checkout = corpus_stale.path / ".source" / "docs"
+    shutil.rmtree(checkout / "docs")
+    (checkout / "a.md").write_text("# a\n")   # at the root, where a document of this source is
+    assert drop_missing(corpus_stale.settings) == {"removed": ["docs:b.md", "docs:c.md"]}   # b.md is not there; docs/b.md would not do
+
+
+def test_only_git_sources_are_looked_at(corpus_stale):
+    config = yaml.safe_load((corpus_stale.path / "config.yaml").read_text())
+    config["sources"].append({"id": "wiki", "type": "web", "url": "https://example.com"})
+    (corpus_stale.path / "config.yaml").write_text(yaml.safe_dump(config))
+    (corpus_stale.path / ".source" / "wiki").mkdir()
+    corpus_stale.add_entry({"id": "wiki:page", "source": "wiki", "path": "page.md"})
+    assert drop_missing(corpus_stale.settings) == {"removed": ["docs:c.md"]}
+    assert corpus_stale.entry("wiki:page")["path"] == "page.md"
+
+
+GRAPH_V1 = """schema_version: 1
+
+concepts:
+  first:
+    label: "First"
+    entries:
+      - docs:a.md
+      - "docs:c.md"
+      - docs:b.md   # kept
+    entry_count: 3
+
+  second:
+    label: "Second"
+    entries: [docs:c.md, docs:a.md]
+  third:
+    label: "Third"
+    entries:
+    - docs:c.md
+    tags: ["t"]
+"""
+
+
+def test_the_removed_ids_leave_the_entry_lists_of_graph_yaml_and_nothing_else_does(corpus_stale):
+    graph = corpus_stale.path / "graph.yaml"
+    graph.write_text(GRAPH_V1)
+    assert drop_missing(corpus_stale.settings) == {"removed": ["docs:c.md"]}
+    assert graph.read_text() == GRAPH_V1.replace('      - "docs:c.md"\n', "").replace("[docs:c.md, docs:a.md]", "[docs:a.md]").replace("    - docs:c.md\n", "")
+
+
+def test_a_graph_without_entry_lists_is_left_alone(corpus_stale):
+    graph = corpus_stale.path / "graph.yaml"
+    before = (graph.stat().st_mtime_ns, graph.read_bytes())
+    assert drop_missing(corpus_stale.settings) == {"removed": ["docs:c.md"]}
+    assert (graph.stat().st_mtime_ns, graph.read_bytes()) == before
+    (corpus_stale.path / "graph.yaml").unlink()
+    corpus_stale.add_entry({"id": "docs:gone.md", "source": "docs", "path": "gone.md"})
+    assert drop_missing(corpus_stale.settings) == {"removed": ["docs:gone.md"]}   # and no graph.yaml at all is not an error
+
+
+@pytest.mark.parametrize("which", ["main", "working"])
+def test_dropping_from_the_polars_index_removes_only_the_lines_of_the_entry(tmp_path, which):
+    copy = either_polars(tmp_path, which)
+    corpus = copy.parent
+    shutil.copy(CLONE / "hiivmind-corpus-polars" / "config.yaml", corpus / "config.yaml")
+    config = yaml.safe_load((corpus / "config.yaml").read_text())
+    source = next(s for s in config["sources"] if s["id"] == "polars")
+    entries = load_index(copy)["entries"]
+    kept = [e for e in entries if e["id"] != "polars:index.md" and e.get("tier") != "section"]
+    checkout = corpus / ".source" / "polars" / source["docs_root"]
+    for entry in kept:
+        target = checkout / (entry.get("path") or entry["id"].removeprefix("polars:"))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("x")
+    before = copy.read_text()
+    assert drop_missing(SimpleNamespace(CORPUS_PATH=corpus)) == {"removed": ["polars:index.md"]}
+    parts = re.split(r"(?m)^(?= *- id: )", before)   # the head, then the entries, each ending at its last line
+    [gone] = [i for i, part in enumerate(parts) if part.lstrip().startswith("- id: polars:index.md\n")]
+    assert copy.read_text() == "".join(parts[:gone] + parts[gone + 1:])
+
+
+async def test_drop_missing_is_a_function_tool_with_no_arguments(corpus_stale):
+    source = FunctionSource({"drop_missing": "tools.index:drop_missing"}, corpus_stale.settings, ROOT)
+    assert {spec.name: spec.schema["properties"] for spec in await source.tools()} == {"drop_missing": {}}
+    assert await source.call("drop_missing", {}, {}) == {"removed": ["docs:c.md"]}

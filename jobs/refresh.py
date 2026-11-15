@@ -56,6 +56,11 @@ def _body(report: dict, *, enrich_finished: bool = True) -> str:
     lines += [
         "", "## Index", "",
         f"- {changes['added']} added, {changes['modified']} modified, {changes['removed']} removed",
+    ]
+    if report["removed_ids"]:
+        lines.append(f"- Removed {len(report['removed_ids'])} entries whose files are gone from the source")
+        lines += _listed(report["removed_ids"], lambda id: f"  - `{id}`", "  ")
+    lines += [
         f"- Enriched: {report['enriched']}",
         f"- Skipped: {report['skipped']}",
     ]
@@ -109,6 +114,8 @@ async def main(job) -> dict:
     changes = found.get("index_changes") or {}
     embeddings = found.get("embeddings", "skipped")
 
+    removed_ids = (await job.call("drop_missing", {}))["removed"]   # entries whose files the refreshed checkouts no longer have
+
     enriched: list[str] = []
     skipped: list[dict] = []
     verification, candidates = None, []
@@ -155,6 +162,7 @@ async def main(job) -> dict:
         "branch": branch,
         "sources": found.get("sources") or [],
         "index_changes": {key: changes.get(key, 0) for key in ("added", "modified", "removed")},
+        "removed_ids": removed_ids,
         "enriched": len(enriched), "enriched_ids": enriched,
         "skipped": len(skipped), "skipped_entries": skipped,
         "needs_attention": needs_attention,

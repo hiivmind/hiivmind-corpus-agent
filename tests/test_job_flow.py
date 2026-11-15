@@ -3,6 +3,8 @@
 import os
 from datetime import date, datetime, timedelta, timezone
 
+import yaml
+
 
 def test_nothing_to_do_makes_no_model_call(job, corpus):                      # criterion 1
     corpus.set_last_sha(corpus.upstream_head)
@@ -143,18 +145,21 @@ def test_the_body_does_not_say_so_when_the_enrich_finished(job, corpus):
 def test_a_body_lists_at_most_fifty_ids_in_each_list():
     from jobs.refresh import _body
     report = {
-        "sources": [], "index_changes": {"added": 0, "modified": 0, "removed": 0}, "enriched": 0,
+        "sources": [], "index_changes": {"added": 0, "modified": 0, "removed": 0}, "removed_ids": [f"docs:r{i}.md" for i in range(60)], "enriched": 0,
         "skipped": 120, "skipped_entries": [{"id": f"docs:s{i}.md", "reason": "r"} for i in range(120)],
         "verification": {"sampled": 1, "failed": 60, "drift_entries": [f"docs:d{i}.md" for i in range(60)]},
         "new_concept_candidates": [], "embeddings": "skipped", "embeddings_lag": None,
         "errors": [f"error {i}" for i in range(51)], "needs_attention": [f"docs:n{i}.md" for i in range(200)],
     }
     body = _body(report)
+    assert "- Removed 60 entries whose files are gone from the source\n" in body
+    assert body.count("`docs:r") == 50 and "docs:r49.md" in body and "docs:r50.md" not in body and "  - and 10 more\n" in body.split("- Enriched")[0]
+    assert "Removed" not in _body({**report, "removed_ids": []})
     assert body.count("docs:s") == 50 and "  - and 70 more\n" in body and "docs:s49.md" in body and "docs:s50.md" not in body
     assert body.count("drift: ") == 50 and "  - and 10 more\n" in body
     assert body.count("`docs:n") == 50 and "- and 150 more\n" in body
     assert body.count("- error ") == 50 and "- and 1 more\n" in body
-    exactly = _body({**report, "skipped_entries": report["skipped_entries"][:50]})
+    exactly = _body({**report, "skipped_entries": report["skipped_entries"][:50], "removed_ids": []})
     assert exactly.count("docs:s") == 50 and "  - and" not in exactly.split("## Verification")[0]
 
 
@@ -168,3 +173,26 @@ def test_the_body_names_each_source_by_what_became_of_it(job, corpus):
     assert "- Failed: `gone` (git): the tracked commit is gone\n" in message
     assert "- Failed: `odd` (git)\n" in message
     assert "None" not in message
+
+
+def test_an_entry_whose_file_is_gone_from_the_source_is_removed_by_the_job(job, corpus):
+    corpus.add_entry({"id": "docs:gone.md", "source": "docs", "path": "gone.md", "stale": False})   # no such file upstream, before or after
+    code, out, record = job()
+    s = record["summary"]
+    assert code == 0 and s["status"] == "refreshed" and s["removed_ids"] == ["docs:gone.md"]
+    assert [r["node"] for r in record["runs"]] == ["refresh", "scan", "enrich"] and s["needs_attention"] == []
+    assert "docs:gone.md" not in (corpus.path / "index.yaml").read_text()
+    message = corpus.git("log", "-1", "--format=%B")
+    assert "- Removed 1 entries whose files are gone from the source\n  - `docs:gone.md`\n" in message
+
+
+def test_a_refresh_that_removes_no_entry_says_nothing_of_it(job, corpus):
+    code, out, record = job()
+    assert record["summary"]["removed_ids"] == [] and "whose files are gone" not in corpus.git("log", "-1", "--format=%B")
+
+
+def test_a_source_the_refresh_did_not_clone_loses_no_entry(job, corpus):
+    corpus.add_entry({"id": "docs:gone.md", "source": "docs", "path": "gone.md", "stale": False})
+    code, out, record = job("nothing_to_refresh")   # the refresh ends without a checkout of `docs`: its entries are not looked at
+    assert code == 0 and record["summary"]["removed_ids"] == [] and not (corpus.path / ".source").exists()
+    assert [e["id"] for e in yaml.safe_load((corpus.path / "index.yaml").read_text())["entries"]] == ["docs:a.md", "docs:b.md", "docs:c.md", "docs:gone.md"]

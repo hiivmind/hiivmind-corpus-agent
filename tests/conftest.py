@@ -333,9 +333,10 @@ def corpus_stale(monkeypatch, _current, tmp_path):
 
 @pytest.fixture
 def corpus_many(monkeypatch, _current, tmp_path):
-    """61 files in the source and 61 entries in the index, all stale: three batches of at most 30. One test uses one corpus fixture."""
-    names = ["docs:a.md", "docs:b.md", "docs:c.md"] + [f"docs:m{i:02d}.md" for i in range(1, 59)]
-    return _make(monkeypatch, _current, tmp_path, extra_files=58, stale=tuple(names), checkout=True)
+    """62 entries in the index, all stale, and 61 files in the source (`c.md` is deleted there, and the job drops its entry): three
+    batches of at most 30. One test uses one corpus fixture."""
+    names = ["docs:a.md", "docs:b.md", "docs:c.md"] + [f"docs:m{i:02d}.md" for i in range(1, 60)]
+    return _make(monkeypatch, _current, tmp_path, extra_files=59, stale=tuple(names), checkout=True)
 
 
 @pytest.fixture

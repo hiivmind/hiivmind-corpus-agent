@@ -1,4 +1,5 @@
-"""`stale_files` and `apply_scan`: which files of the index are stale, and the merge of the scans of them into `index.yaml`.
+"""`stale_files`, `apply_scan` and `drop_missing`: which files of the index are stale, the merge of the scans of them into
+`index.yaml`, and the removal of the entries whose files are gone from the source.
 
 `apply_scan` is `enrich-headless` Phase 2's merge as code. It is the only writer of `index.yaml` while the scans, which run
 at the same time and change nothing, are going on.
@@ -85,6 +86,18 @@ def write_entries(path: Path, changed: dict[str, dict]) -> None:
     path.write_text("".join(out + tail))
 
 
+def remove_entries(path: Path, ids: set[str]) -> None:
+    """Remove the entries of the index file at `path` whose id is in `ids`, and nothing else: only the lines of those entries
+    go. No entry removed leaves the file untouched."""
+    if not ids:
+        return
+    text = path.read_text()
+    head, blocks, tail = _split(text)
+    kept = [block for block in blocks if yaml.safe_load("".join(block))[0]["id"] not in ids]
+    if len(kept) < len(blocks):
+        path.write_text("".join(head + [line for block in kept for line in block] + tail))
+
+
 def _source_of(entry: dict) -> str:
     return entry.get("source") or str(entry["id"]).partition(":")[0]
 
@@ -146,3 +159,83 @@ def apply_scan(scans: list, settings) -> dict:
                 enriched.append(id)
     write_entries(index_file, {id: by_id[id] for id in enriched})
     return {"enriched": enriched, "skipped": skipped}
+
+
+def _scalar(text: str):
+    try:
+        return yaml.safe_load(text)
+    except yaml.YAMLError:
+        return None
+
+
+def _drop_from_graph(path: Path, ids: set[str]) -> None:
+    """Remove `ids` from the `entries` lists of the concepts of `graph.yaml` (schema version 1; version 2 has no such list),
+    line by line: nothing else in the file changes. A file without such a list, or without those ids in it, is left alone."""
+    if not path.is_file():
+        return
+    lines = path.read_text().splitlines(keepends=True)
+    out: list[str] = []
+    changed = False
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        match = re.match(r"^( +)entries:[ \t]*(.*?)(\r?\n?)$", line)
+        if not match:
+            out.append(line)
+            i += 1
+            continue
+        indent, rest, newline = match.groups()
+        if rest.startswith("["):   # `entries: [a, b]`
+            items = _scalar(rest)
+            if isinstance(items, list) and any(item in ids for item in items):
+                tokens = [t.strip() for t in rest[1:rest.rindex("]")].split(",")]   # the items as written, quotes and all
+                if len(tokens) != len(items):   # a comma inside an item: write the list again
+                    tokens = [yaml.safe_dump(item, default_flow_style=True, width=10**9).strip() for item in items]
+                kept = [t for t, item in zip(tokens, items) if item not in ids]
+                out.append(f"{indent}entries: [{', '.join(kept)}]{newline}")
+                changed = True
+            else:
+                out.append(line)
+            i += 1
+            continue
+        out.append(line)   # `entries:` and a block list, indented or not, under it
+        i += 1
+        while i < len(lines):
+            item = re.match(r"^( *)- (.*?)\s*$", lines[i])
+            if item is None and lines[i].strip():
+                break
+            if item is not None and len(item.group(1)) < len(indent):
+                break
+            if item is not None and _scalar(re.sub(r"\s+#.*$", "", item.group(2))) in ids:
+                changed = True
+            else:
+                out.append(lines[i])
+            i += 1
+    if changed:
+        path.write_text("".join(out))
+
+
+def drop_missing(settings) -> dict:
+    """Remove the entries whose file is gone from its git source: `{"removed": [entry ids]}`.
+
+    For each file entry (not `tier: section`) of a `git` source of `config.yaml`, the file is `.source/<source id>/<docs_root>/<path>`
+    (`docs_root` `.` or absent: none; `path` as `stale_files` takes it). When it does not exist in the checkout the refresh has
+    just updated, the entry goes from `index.yaml`, and its id from the `entries` lists of `graph.yaml`, if it has any. A source
+    with no checkout (the refresh failed or never cloned it) is left alone: nothing is removed on a checkout that is not there.
+    """
+    corpus = Path(settings.CORPUS_PATH)
+    config = yaml.safe_load((corpus / "config.yaml").read_text()) or {}
+    git = {s["id"]: s for s in config.get("sources") or [] if s.get("type") == "git"}
+    index_file = corpus / "index.yaml"
+    removed: list[str] = []
+    for entry in load_index(index_file).get("entries") or []:
+        source = git.get(_source_of(entry))
+        checkout = corpus / ".source" / source["id"] if source else None
+        if checkout is None or not checkout.is_dir() or entry.get("tier") == "section":
+            continue
+        docs_root = source.get("docs_root") or "."
+        if not (checkout / docs_root / _path_of(entry)).exists():
+            removed.append(entry["id"])
+    remove_entries(index_file, set(removed))
+    _drop_from_graph(corpus / "graph.yaml", set(removed))
+    return {"removed": removed}
