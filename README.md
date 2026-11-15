@@ -161,10 +161,34 @@ What went right: all four node runs of each run ended `done` on the first try, w
 What went wrong, or is not as it should be:
 
 - **`index.yaml` was rewritten from top to bottom (first run; fixed).** `apply_scan` wrote the whole file with PyYAML, and the index on `main` of `hiivmind-corpus-data` is in another layout (list items indented under their key, other quoting) than the one the writer produced; the owner's older copy, which the first round-trip test read, was in the writer's layout. The commit's diff of `index.yaml` was 2,647 lines added and 1,500 removed for 26 entries that changed, unreadable as a pull request's index diff. `b53deb0` writes only the entries that changed, in the layout the file has; the second run's diff is the one in the table.
-- **26 stale entries point at files that are not in the source.** They are the 25 `polars-on-premises/...` entries and `polars-cloud/run/distributed-engine.md`, stale since 2026-06-30 (16) or 2026-07-06 (10), and no such file exists under `docs/source` at `5075c53` or at either head. The refresh cannot see them (they are not in the diff between the two commits), the scans find no file, so they stay stale and are listed under "Needs attention", as Review Focus 5 expects, in both runs. The owner decided on 2026-11-15 that an entry whose file is gone from its source is removed, so the job now removes them: `drop_missing` runs after the refresh and before the scans, and the 26 entries go from `index.yaml` on the first run after this change. The two runs above predate it.
+- **26 stale entries point at files that are not in the source.** They are the 25 `polars-on-premises/...` entries and `polars-cloud/run/distributed-engine.md`, stale since 2026-06-30 (16) or 2026-07-06 (10), and no such file exists under `docs/source` at `5075c53` or at either head. The refresh cannot see them (they are not in the diff between the two commits), the scans find no file, so they stay stale and are listed under "Needs attention", as Review Focus 5 expects, in both runs. The owner decided on 2026-11-15 that an entry whose file is gone from its source is removed, so the job now removes them: `drop_missing` runs after the refresh and before the scans, and the 26 entries go from `index.yaml` on the first run after this change. The two runs above predate it; step 4 below removed them.
 - **The embeddings stay 5 entries behind**: `detect.py` prints `no-model` on this machine, so `enrich` does not embed (it never downloads the model during a refresh).
 - **Noise on the terminal**: the filesystem MCP server prints a line for each request and, after eleven, a Node `MaxListenersExceededWarning`; the job itself prints nothing, its summary is in `record.json`.
 
+### Step 4: Polars, pushing, `claude-sonnet-5-5` (the first real pull request)
+
+2026-11-15, on a fresh scratch clone of `hiivmind-corpus-data`, with `--param PUSH=true`. The run exited 0 with status `ok` and no failed node run, and opened https://github.com/hiivmind/hiivmind-corpus-data/pull/17 (branch `automated/corpus-refresh-polars-2026-11-15`; no stale or superseded refresh pull requests). Wall time 5 min 18 s (record 00:48:31 to 00:53:49 UTC).
+
+| What | Result |
+|---|---|
+| Source | `polars`, `updated` `5075c53` to `2d9938d`; 26 files changed |
+| Entries | 20 modified, 0 added; 26 enriched, 0 skipped; nothing under "Needs attention" |
+| Removed | 33 entries whose files are gone from `docs/source` (each was checked absent at both commits) |
+| Verification | sampled 10, failed 0, no drift; 1 new concept candidate (`Contributing`: 3 entries) |
+| Embeddings | `no-model`, lag 26 |
+| Model calls | 36 (refresh 16, scan 5, enrich 15) |
+
+Tokens, from `record.json`:
+
+| Node run | Model calls | `tokens_sent` | Read from cache | Written to cache | Not cached |
+|---|---|---|---|---|---|
+| `refresh#1` | 16 | 475,908 | 423,393 (89.0%) | 52,481 | 34 |
+| `scan#2` | 5 | 325,812 | 220,007 (67.5%) | 105,793 | 12 |
+| `enrich#3` | 15 | 726,962 | 662,238 (91.1%) | 64,692 | 32 |
+| Total | 36 | 1,528,682 | 1,305,638 (85.4%) | 222,966 (14.6%) | 78 |
+
+The dead entries that step 3 left stale are removed (33 in the record); nothing is left under "Needs attention".
+
 ### Not yet run
 
-Step 4 (the pull request of criterion 2, `PUSH=true` on the owner's choice of `CORPUS_REPO`) waits for the owner's word, and step 5 (criterion 1 on a real corpus: exit 0, `already current`, no model call) follows it. Step 5 runs on a corpus whose embeddings are ready (`detect.py` prints `ready`) or, as `detect.py` prints `no-model` here, on one with no `index-embeddings.lance/`; the result will say which.
+Step 5 (criterion 1 on a real corpus: exit 0, `already current`, no model call) is not run: `detect.py` prints `no-model`, so the embeddings lag stays above 0. It runs on a corpus whose embeddings are ready (`detect.py` prints `ready`) or on one with no `index-embeddings.lance/`; the result will say which.
