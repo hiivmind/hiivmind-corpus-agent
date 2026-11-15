@@ -5,7 +5,9 @@
 at the same time and change nothing, are going on.
 """
 
+import posixpath
 import re
+import subprocess
 import textwrap
 from datetime import datetime, timezone
 from pathlib import Path
@@ -86,16 +88,24 @@ def write_entries(path: Path, changed: dict[str, dict]) -> None:
     path.write_text("".join(out + tail))
 
 
-def remove_entries(path: Path, ids: set[str]) -> None:
-    """Remove the entries of the index file at `path` whose id is in `ids`, and nothing else: only the lines of those entries
-    go. No entry removed leaves the file untouched."""
-    if not ids:
-        return
-    text = path.read_text()
+def _without(text: str, ids: set[str]) -> tuple[str, list[str]]:
+    """The index file `text` without the entries whose id is in `ids`, and the ids it did remove: only the lines of those
+    entries go, and `meta.entry_count` becomes the number left. An emptied list stays `entries: []`. Nothing removed: `text` as it is."""
     head, blocks, tail = _split(text)
-    kept = [block for block in blocks if yaml.safe_load("".join(block))[0]["id"] not in ids]
-    if len(kept) < len(blocks):
-        path.write_text("".join(head + [line for block in kept for line in block] + tail))
+    kept, removed = [], []
+    for block in blocks:
+        id = yaml.safe_load("".join(block))[0]["id"]
+        if id in ids:
+            removed.append(id)
+        else:
+            kept.append(block)
+    if not removed:
+        return text, []
+    head = [re.sub(r"^( +entry_count: *)\d+", rf"\g<1>{len(kept)}", line, count=1) for line in head]
+    if not kept:   # `entries:` with nothing under it would be null
+        last = max(i for i, line in enumerate(head) if line.rstrip() == "entries:")
+        head[last] = head[last].replace("entries:", "entries: []")
+    return "".join(head + [line for block in kept for line in block] + tail), removed
 
 
 def _source_of(entry: dict) -> str:
@@ -168,14 +178,16 @@ def _scalar(text: str):
         return None
 
 
-def _drop_from_graph(path: Path, ids: set[str]) -> None:
-    """Remove `ids` from the `entries` lists of the concepts of `graph.yaml` (schema version 1; version 2 has no such list),
-    line by line: nothing else in the file changes. A file without such a list, or without those ids in it, is left alone."""
-    if not path.is_file():
-        return
-    lines = path.read_text().splitlines(keepends=True)
+def _gone(item, ids: set[str]) -> bool:
+    return isinstance(item, str) and item in ids
+
+
+def _graph_without(text: str, ids: set[str]) -> str:
+    """`graph.yaml`'s `text` without `ids` in the `entries` lists of its concepts (schema version 1; version 2 has no such
+    list), line by line: nothing else changes. A list emptied stays a list (`[]`). A file without such a list, or without those
+    ids in it, comes back as it is."""
+    lines = text.splitlines(keepends=True)
     out: list[str] = []
-    changed = False
     i = 0
     while i < len(lines):
         line = lines[i]
@@ -187,55 +199,92 @@ def _drop_from_graph(path: Path, ids: set[str]) -> None:
         indent, rest, newline = match.groups()
         if rest.startswith("["):   # `entries: [a, b]`
             items = _scalar(rest)
-            if isinstance(items, list) and any(item in ids for item in items):
+            if isinstance(items, list) and any(_gone(item, ids) for item in items):
                 tokens = [t.strip() for t in rest[1:rest.rindex("]")].split(",")]   # the items as written, quotes and all
                 if len(tokens) != len(items):   # a comma inside an item: write the list again
                     tokens = [yaml.safe_dump(item, default_flow_style=True, width=10**9).strip() for item in items]
-                kept = [t for t, item in zip(tokens, items) if item not in ids]
+                kept = [t for t, item in zip(tokens, items) if not _gone(item, ids)]
                 out.append(f"{indent}entries: [{', '.join(kept)}]{newline}")
-                changed = True
             else:
                 out.append(line)
             i += 1
             continue
+        header = len(out)
         out.append(line)   # `entries:` and a block list, indented or not, under it
         i += 1
+        listed = dropped = 0
         while i < len(lines):
             item = re.match(r"^( *)- (.*?)\s*$", lines[i])
             if item is None and lines[i].strip():
                 break
             if item is not None and len(item.group(1)) < len(indent):
                 break
-            if item is not None and _scalar(re.sub(r"\s+#.*$", "", item.group(2))) in ids:
-                changed = True
+            if item is not None:
+                listed += 1
+            if item is not None and _gone(_scalar(re.sub(r"\s+#.*$", "", item.group(2))), ids):
+                dropped += 1
             else:
                 out.append(lines[i])
             i += 1
-    if changed:
-        path.write_text("".join(out))
+        if listed and dropped == listed:   # all gone: `entries:` alone would be null
+            out[header] = f"{indent}entries: []{newline}"
+    return "".join(out)
 
 
-def drop_missing(settings) -> dict:
+def _checked_out(corpus: Path, source: dict, status: str | None) -> set[str] | None:
+    """The files of the source, as git says the checkout has them at `HEAD`, under its `docs_root`; `None` when that cannot be
+    trusted. It can when `status` is what the refresh reported for the source (`updated` or `current`), `.source/<id>/.git` exists
+    and `HEAD` is the `last_commit_sha` of `config.yaml` in full. The worktree is not looked at: a sparse or partial one has
+    fewer files than the commit."""
+    checkout = corpus / ".source" / str(source["id"])
+    sha = source.get("last_commit_sha")
+    if status not in ("updated", "current") or not isinstance(sha, str) or not (checkout / ".git").exists():
+        return None
+    docs_root = posixpath.normpath(str(source.get("docs_root") or "."))
+    listing = ["ls-tree", "-r", "-z", "--name-only", "HEAD"] + ([] if docs_root == "." else ["--", docs_root])
+    try:
+        head, files = (
+            subprocess.run(["git", "-C", str(checkout), *args], capture_output=True, text=True, timeout=120)
+            for args in (["rev-parse", "HEAD"], listing)
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if head.returncode or files.returncode or head.stdout.strip() != sha or not files.stdout:   # no files: a docs_root that is not there
+        return None
+    return set(files.stdout.split("\0")) - {""}
+
+
+def drop_missing(sources: list, settings) -> dict:
     """Remove the entries whose file is gone from its git source: `{"removed": [entry ids]}`.
 
-    For each file entry (not `tier: section`) of a `git` source of `config.yaml`, the file is `.source/<source id>/<docs_root>/<path>`
-    (`docs_root` `.` or absent: none; `path` as `stale_files` takes it). When it does not exist in the checkout the refresh has
-    just updated, the entry goes from `index.yaml`, and its id from the `entries` lists of `graph.yaml`, if it has any. A source
-    with no checkout (the refresh failed or never cloned it) is left alone: nothing is removed on a checkout that is not there.
+    `sources` is what the refresh reported, `{"id": str, "status": str}` for each source (`[]` when the refresh did not end
+    `done`). For each file entry (not `tier: section`) of a `git` source of `config.yaml` that `_checked_out` trusts, the file is
+    `<docs_root>/<path>` (`docs_root` `.` or absent: none; `path` as `stale_files` takes it); when git does not list it at `HEAD` of the
+    checkout, the entry goes from `index.yaml`, and its id from the `entries` lists of `graph.yaml`, if it has any. When anything
+    went, `meta.entry_count` follows and `index.md` is rendered again (`render-index.sh`). A source that fails any check loses nothing.
     """
     corpus = Path(settings.CORPUS_PATH)
     config = yaml.safe_load((corpus / "config.yaml").read_text()) or {}
+    reported = {s.get("id"): s.get("status") for s in sources or [] if isinstance(s, dict)}
     git = {s["id"]: s for s in config.get("sources") or [] if s.get("type") == "git"}
+    files = {id: _checked_out(corpus, source, reported.get(id)) for id, source in git.items()}
     index_file = corpus / "index.yaml"
-    removed: list[str] = []
+    gone = set()
     for entry in load_index(index_file).get("entries") or []:
-        source = git.get(_source_of(entry))
-        checkout = corpus / ".source" / source["id"] if source else None
-        if checkout is None or not checkout.is_dir() or entry.get("tier") == "section":
-            continue
-        docs_root = source.get("docs_root") or "."
-        if not (checkout / docs_root / _path_of(entry)).exists():
-            removed.append(entry["id"])
-    remove_entries(index_file, set(removed))
-    _drop_from_graph(corpus / "graph.yaml", set(removed))
+        listed = files.get(_source_of(entry))
+        if listed is not None and entry.get("tier") != "section":
+            docs_root = git[_source_of(entry)].get("docs_root") or "."
+            if posixpath.normpath(posixpath.join(str(docs_root), _path_of(entry))) not in listed:
+                gone.add(entry["id"])
+    text, removed = _without(index_file.read_text(), gone)
+    if not removed:
+        return {"removed": []}
+    graph_file = corpus / "graph.yaml"
+    graph = _graph_without(graph_file.read_text(), set(removed)) if graph_file.is_file() else None
+    if graph is not None and graph != graph_file.read_text():   # graph.yaml first: a failure leaves index.yaml whole
+        graph_file.write_text(graph)
+    index_file.write_text(text)
+    done = subprocess.run(["bash", "./render-index.sh", "index.yaml"], cwd=corpus, capture_output=True, text=True, timeout=120)
+    if done.returncode:
+        raise RuntimeError(f"render-index.sh failed after the removal of {len(removed)} entries: {done.stderr.strip() or done.stdout.strip()}")
     return {"removed": removed}

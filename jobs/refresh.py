@@ -58,7 +58,8 @@ def _body(report: dict, *, enrich_finished: bool = True) -> str:
         f"- {changes['added']} added, {changes['modified']} modified, {changes['removed']} removed",
     ]
     if report["removed_ids"]:
-        lines.append(f"- Removed {len(report['removed_ids'])} entries whose files are gone from the source")
+        count = len(report["removed_ids"])
+        lines.append(f"- Removed {count} entries whose files are gone from the source" if count != 1 else "- Removed 1 entry whose file is gone from the source")
         lines += _listed(report["removed_ids"], lambda id: f"  - `{id}`", "  ")
     lines += [
         f"- Enriched: {report['enriched']}",
@@ -114,7 +115,9 @@ async def main(job) -> dict:
     changes = found.get("index_changes") or {}
     embeddings = found.get("embeddings", "skipped")
 
-    removed_ids = (await job.call("drop_missing", {}))["removed"]   # entries whose files the refreshed checkouts no longer have
+    # entries whose files git says the refreshed checkouts no longer have; a refresh that did not end `done` vouches for no source
+    reported = [{"id": s.get("id"), "status": s.get("status")} for s in found.get("sources") or []] if refresh["outcome"] == "done" else []
+    removed_ids = (await job.call("drop_missing", {"sources": reported}))["removed"]
 
     enriched: list[str] = []
     skipped: list[dict] = []

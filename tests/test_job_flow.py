@@ -1,6 +1,7 @@
 """The refresh job, as `agent-core job` runs it, on a corpus in a temporary directory and the scripted backend."""
 
 import os
+import subprocess
 from datetime import date, datetime, timedelta, timezone
 
 import yaml
@@ -153,6 +154,7 @@ def test_a_body_lists_at_most_fifty_ids_in_each_list():
     }
     body = _body(report)
     assert "- Removed 60 entries whose files are gone from the source\n" in body
+    assert "- Removed 1 entry whose file is gone from the source\n" in _body({**report, "removed_ids": ["docs:r0.md"]})
     assert body.count("`docs:r") == 50 and "docs:r49.md" in body and "docs:r50.md" not in body and "  - and 10 more\n" in body.split("- Enriched")[0]
     assert "Removed" not in _body({**report, "removed_ids": []})
     assert body.count("docs:s") == 50 and "  - and 70 more\n" in body and "docs:s49.md" in body and "docs:s50.md" not in body
@@ -183,7 +185,7 @@ def test_an_entry_whose_file_is_gone_from_the_source_is_removed_by_the_job(job, 
     assert [r["node"] for r in record["runs"]] == ["refresh", "scan", "enrich"] and s["needs_attention"] == []
     assert "docs:gone.md" not in (corpus.path / "index.yaml").read_text()
     message = corpus.git("log", "-1", "--format=%B")
-    assert "- Removed 1 entries whose files are gone from the source\n  - `docs:gone.md`\n" in message
+    assert "- Removed 1 entry whose file is gone from the source\n  - `docs:gone.md`\n" in message
 
 
 def test_a_refresh_that_removes_no_entry_says_nothing_of_it(job, corpus):
@@ -196,3 +198,44 @@ def test_a_source_the_refresh_did_not_clone_loses_no_entry(job, corpus):
     code, out, record = job("nothing_to_refresh")   # the refresh ends without a checkout of `docs`: its entries are not looked at
     assert code == 0 and record["summary"]["removed_ids"] == [] and not (corpus.path / ".source").exists()
     assert [e["id"] for e in yaml.safe_load((corpus.path / "index.yaml").read_text())["entries"]] == ["docs:a.md", "docs:b.md", "docs:c.md", "docs:gone.md"]
+
+
+def _checkout_at_head(corpus) -> None:
+    """The working copy of the source, a repository at the upstream's head: what a refresh that went well leaves."""
+    subprocess.run(["git", "clone", "-q", str(corpus.upstream), str(corpus.path / ".source" / "docs")], check=True)
+
+
+def test_a_removal_with_nothing_to_scan_still_leaves_index_yaml_and_index_md_in_step(job, corpus):
+    _checkout_at_head(corpus)
+    corpus.add_entry({"id": "docs:gone.md", "source": "docs", "path": "gone.md", "stale": False})   # c.md is gone upstream too
+    assert "`docs:c.md`" in (corpus.path / "index.md").read_text()
+    code, out, record = job("refresh_removal_only")
+    s = record["summary"]
+    assert code == 0 and [r["node"] for r in record["runs"]] == ["refresh"] and s["status"] == "refreshed"
+    assert s["removed_ids"] == ["docs:c.md", "docs:gone.md"]
+    index = yaml.safe_load((corpus.path / "index.yaml").read_text())
+    assert [e["id"] for e in index["entries"]] == ["docs:a.md", "docs:b.md"] and index["meta"]["entry_count"] == 2
+    index_md = (corpus.path / "index.md").read_text()
+    assert "`docs:c.md`" not in index_md and "`docs:a.md`" in index_md and "Entries: 2 " in index_md
+    message = corpus.git("log", "-1", "--format=%B")
+    assert "- Removed 2 entries whose files are gone from the source\n  - `docs:c.md`\n  - `docs:gone.md`\n" in message
+    assert corpus.git("status", "--porcelain") == ""   # the removal is in the commit, index.md with it
+    assert set(corpus.git("show", "--name-only", "--format=", "HEAD").splitlines()) >= {
+        f"{corpus.path.name}/index.yaml", f"{corpus.path.name}/index.md",
+    }
+
+
+def test_a_source_the_refresh_reports_failed_loses_no_entry_though_its_checkout_is_at_the_head(job, corpus):
+    _checkout_at_head(corpus)
+    corpus.add_entry({"id": "docs:gone.md", "source": "docs", "path": "gone.md", "stale": False})
+    code, out, record = job("refresh_source_failed")   # the script records the head as `last_commit_sha`: only the status holds the entries
+    assert code == 0 and record["summary"]["removed_ids"] == []
+    assert [e["id"] for e in yaml.safe_load((corpus.path / "index.yaml").read_text())["entries"]] == ["docs:a.md", "docs:b.md", "docs:c.md", "docs:gone.md"]
+
+
+def test_a_refresh_that_did_not_end_done_drops_nothing(job, corpus):
+    _checkout_at_head(corpus)
+    corpus.add_entry({"id": "docs:gone.md", "source": "docs", "path": "gone.md", "stale": False})
+    code, out, record = job("refresh_not_done")   # it reports the source `updated`, and the checkout is at the head
+    assert code == 0 and record["summary"]["removed_ids"] == [] and "the refresh gave up" in record["summary"]["errors"]
+    assert "docs:gone.md" in (corpus.path / "index.yaml").read_text()

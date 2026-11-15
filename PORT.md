@@ -66,7 +66,7 @@ These are not copies. Each is the logic of a skill or of the template, as a func
 | `jobs/refresh.py` | the job: the template's phases in order, with the scans run at the same time | `hiivmind-corpus-scheduler/TEMPLATE-corpus-refresh.md` at `1a84e83` |
 | `tools/status.py`, `tools/sources/` | `corpus_status`, the freshness pre-check; the seam for kinds of source | `hiivmind-corpus/skills/hiivmind-corpus-status-headless/SKILL.md` phases 1 to 4, at `d9ba1ad` |
 | `tools/repo.py` | `repo_prepare` (the template's Phase 2), `repo_branch`, `repo_finish` (Phase 4) | the template at `1a84e83` |
-| `tools/index.py` | `stale_files` and `apply_scan`: the merge of the scans into `index.yaml` | `hiivmind-corpus/skills/hiivmind-corpus-enrich-headless/SKILL.md` Phase 2, at `d9ba1ad` |
+| `tools/index.py` | `stale_files`, `apply_scan` (the merge of the scans into `index.yaml`) and `drop_missing` (the removal of the entries whose files git says are gone from the source; the owner's decision of 2026-11-15, not from a skill) | `hiivmind-corpus/skills/hiivmind-corpus-enrich-headless/SKILL.md` Phase 2, at `d9ba1ad` |
 
 ## After the runs with a model (Task 10)
 
