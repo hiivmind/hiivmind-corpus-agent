@@ -1,0 +1,7 @@
+[
+  [["reference", {"doc": "embeddings", "section": "Dependency Detection"}]],
+  [["embeddings_status", {}]],
+  [["stale_entries", {}]],
+  [["embeddings_lag", {}]],
+  [["exit", {"outcome": "deferred", "outputs": {"embeddings": "deferred", "embeddings_lag": null, "embed_errors": []}}]]
+]

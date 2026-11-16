@@ -2,6 +2,9 @@ nodes:
   - {name: update-sources, path: skills/update-sources}
   - {name: scan, path: skills/scan}
   - {name: index, path: skills/index}
+  - {name: concepts, path: skills/concepts}
+  - {name: verify, path: skills/verify}
+  - {name: embed, path: skills/embed}
 exits:
   done: route
   declined: route

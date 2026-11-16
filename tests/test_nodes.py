@@ -1,5 +1,6 @@
 """The nodes of the instance, run with the scripted backend: each node's contract."""
 
+from datetime import date
 
 import yaml
 from agent_core.backends.scripted import ScriptedBackend
@@ -139,6 +140,73 @@ async def test_index_merges_through_merge_scans_and_renders(corpus, run):
 async def test_the_index_procedure_shows_the_model_no_scan(corpus):
     text = await filled_procedure(corpus, "index", {"scans": [{"entries": [{"path": "secret-path.md"}]}], "scans_failures": []})
     assert "secret-path.md" not in text   # CRP-5: the scans reach merge_scans as facts only
+
+
+# --- concepts, verify, embed -------------------------------------------------------------------------------------------
+
+def test_concepts_declares_its_contract(instance):
+    node = instance.nodes["concepts"]
+    assert set(node.inputs) == {"enriched_ids"}
+    assert set(node.outputs) == {"concepts_assigned", "new_concept_candidates", "concept_errors"}
+    assert node.outputs["new_concept_candidates"]["items"]["required"] == ["label", "evidence"]
+    assert node.exits == ("done", "failed") and "files__edit_file" not in node.allowed_tools and "set_concepts" in node.allowed_tools
+
+
+async def test_concepts_writes_through_set_concepts(corpus_stale, run):
+    corpus_stale.set_concepts("docs:a.md", [])
+    result = await run("concepts", {"enriched_ids": ["docs:a.md"]})
+    assert result["outcome"] == "done" and result["outputs"]["concepts_assigned"] == 1
+    assert corpus_stale.entry("docs:a.md")["concepts"] == ["concept"]
+    assert yaml.safe_load((corpus_stale.path / "index.yaml").read_text())["meta"]["generated_at"].startswith(date.today().isoformat())
+
+
+def test_concepts_keeps_the_matching_rules():
+    text = (ROOT / "skills" / "concepts" / "SKILL.md").read_text()
+    assert "Do not write them to `graph.yaml`" in text and "at least two tag overlaps" in text
+    assert "directory groups, one for each directory" in text and "directory `.`" in text
+
+
+def test_verify_declares_its_contract(instance):
+    node = instance.nodes["verify"]
+    assert set(node.inputs) == {"enriched_ids"} and set(node.outputs) == {"verification", "verify_errors"}
+    assert node.outputs["verification"]["required"] == ["sampled", "failed", "drift_entries"]
+    assert node.exits == ("done", "failed") and {"verify_previews", "set_summary"} <= set(node.allowed_tools)
+
+
+async def test_verify_replaces_a_drifting_summary_through_set_summary(corpus_stale, run):
+    result = await run("verify", {"enriched_ids": ["docs:a.md"]})
+    assert result["outcome"] == "done" and result["outputs"]["verification"] == {"sampled": 1, "failed": 1, "drift_entries": ["docs:a.md"]}
+    assert corpus_stale.entry("docs:a.md")["summary"] == "The file a.md, as it reads now: changed."
+    assert "The file a.md, as it reads now: changed." in (corpus_stale.path / "index.md").read_text()
+
+
+def test_verify_keeps_the_sample_of_ten():
+    assert "Take the first ten target entries" in (ROOT / "skills" / "verify" / "SKILL.md").read_text()
+
+
+def test_embed_declares_its_contract(instance):
+    node = instance.nodes["embed"]
+    assert set(node.inputs) == set() and set(node.outputs) == {"embeddings", "embeddings_lag", "embed_errors"}
+    assert node.outputs["embeddings"]["enum"] == ["updated", "skipped", "no-model", "not-installed", "deferred"]
+    assert node.exits == ("done", "deferred", "failed")
+    assert {"embeddings_status", "stale_entries", "embed", "embeddings_lag"} <= set(node.allowed_tools)
+
+
+async def test_embed_with_no_lance_directory_is_skipped(corpus, run):
+    result = await run("embed", {})
+    assert result["outcome"] == "done" and result["outputs"] == {"embeddings": "skipped", "embeddings_lag": None, "embed_errors": []}
+
+
+async def test_embed_defers_while_entries_are_stale(corpus_stale, run):
+    (corpus_stale.path / "index-embeddings.lance").mkdir()
+    result = await run("embed", {}, case="embed_deferred")
+    assert result["outcome"] == "deferred" and result["outputs"]["embeddings"] == "deferred"
+
+
+def test_embed_with_an_unexpected_detect_output_is_skipped_and_says_so():   # design review A8
+    text = (ROOT / "skills" / "embed" / "SKILL.md").read_text()
+    assert "anything else, or nothing" in text and "`detect.py printed <output>`" in text and "Never download the model" in text
+    assert text.index("`stale_entries`") < text.index("CALL `embed`")   # stale entries are never embedded
 
 
 # --- every node -------------------------------------------------------------------------------------------------------

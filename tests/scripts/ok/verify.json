@@ -1,0 +1,6 @@
+[
+  [["verify_previews", {"entry_ids": ["docs:a.md"]}]],
+  [["set_summary", {"entry_id": "docs:a.md", "summary": "The file a.md, as it reads now: changed."}]],
+  [["shell__run", {"command": "cd @CORPUS@ && bash ./render-index.sh index.yaml"}]],
+  [["exit", {"outcome": "done", "outputs": {"verification": {"sampled": 1, "failed": 1, "drift_entries": ["docs:a.md"]}, "verify_errors": []}}]]
+]
