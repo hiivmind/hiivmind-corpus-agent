@@ -224,6 +224,8 @@ What the model wrote wrong, in the facts of `update-sources` and so in the pull 
 - `removed_ids` lists 32 of the 33 (`polars:polars-on-premises/bare-metal/configuration/persistence.md` is missing);
 - `update_errors` holds `excluded-by-config: none`, though nothing was excluded.
 
+The owner accepted this (2026-11-17): real runs use `claude-sonnet-5-5`, the default when `AGENT_CORE_LANGGRAPH_MODEL` is not set, which copied the same figures correctly in step 4.
+
 ### Not yet run
 
 Step 5 (criterion 1 on a real corpus: exit 0, `already current`, no model call) is not run: `detect.py` prints `no-model`, so the embeddings lag stays above 0. It runs on a corpus whose embeddings are ready (`detect.py` prints `ready`) or on one with no `index-embeddings.lance/`; the result will say which.
