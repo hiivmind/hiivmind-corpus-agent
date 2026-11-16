@@ -125,3 +125,10 @@ def test_a_stopped_node_ends_the_run_and_publishes_nothing(corpus, job, today): 
     assert record["end_state"] == "stopped" and names(record)[-1] == "concepts" and "publish" not in names(record)
     assert corpus.git("branch", "--list", f"automated/corpus-refresh-test-{today}*") == ""
     assert corpus.git("status", "--porcelain") != ""   # the changes stay in the working tree
+
+
+def test_a_failed_index_reaches_publish_with_its_error(corpus, job):                   # final review 2
+    code, out, record = job("index_fails")
+    assert code == 0, out
+    assert outcomes(record)["index"] == "failed" and outcomes(record)["publish"] == "committed" and "concepts" not in names(record)
+    assert record["facts"]["index_errors"] == ["merge_scans failed: the test makes the merge fail"]

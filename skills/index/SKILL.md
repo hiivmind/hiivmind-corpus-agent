@@ -29,7 +29,7 @@ Keep a list `index_errors`, empty to begin with.
 
 ## Steps
 
-1. CALL `merge_scans`, with no arguments. It returns `enriched` (the ids of the entries it updated) and `skipped` (each with `id` and `reason`). If it returns an error, EXIT `failed` with output `reason` set to the error.
+1. CALL `merge_scans`, with no arguments. It returns `enriched` (the ids of the entries it updated) and `skipped` (each with `id` and `reason`). If it returns an error, EXIT `failed` with outputs `reason` set to the error and `index_errors` set to `merge_scans failed: <error>`, so that `publish` reports it.
 2. If `enriched` is not empty, render the index; the node's error list is `index_errors`. {{include fragments/render-index.md}}
 3. EXIT `done` with outputs `enriched_ids` set to `enriched`, `skipped_entries` set to `skipped`, and `index_errors`.
 
@@ -37,5 +37,5 @@ Keep a list `index_errors`, empty to begin with.
 
 | Error | Behaviour |
 |-------|-----------|
-| `merge_scans` returns an error (step 1) | EXIT `failed` with output `reason` set to the error. |
+| `merge_scans` returns an error (step 1) | EXIT `failed` with the error in `reason` and in `index_errors`. |
 | `render-index.sh` exits with a code that is not 0 (step 2) | Add `index.md not rendered: <error>` to `index_errors`. |

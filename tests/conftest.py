@@ -39,12 +39,6 @@ def corpus(monkeypatch, _current, tmp_path):
 
 
 @pytest.fixture
-def corpus_at_root(monkeypatch, _current, tmp_path):
-    """`corpus` with the corpus at the clone's root. One test uses one corpus fixture."""
-    return _make(monkeypatch, _current, tmp_path, at_root=True)
-
-
-@pytest.fixture
 def corpus_pushing(monkeypatch, _current, tmp_path):
     """`corpus` with `PUSH: true`. One test uses one corpus fixture."""
     return _make(monkeypatch, _current, tmp_path, push=True)
@@ -105,10 +99,10 @@ def run(_current):
 
 @pytest.fixture
 def job(_current):
-    """`job(case="ok", env=None, resume=None, **params)`: the refresh sequence in a subprocess; `(exit code, standard output,
-    run record or None)`. Every run of a test keeps its directory beside the others, so one journal holds them all and
-    `resume` (a run id) finds the run it names."""
-    def job(case: str = "ok", env: dict[str, str] | None = None, resume: str | None = None, **params: str):
+    """`job(case="ok", resume=None)`: the refresh sequence in a subprocess; `(exit code, standard output, run record or None)`.
+    Every run of a test keeps its directory beside the others, so one journal holds them all and `resume` (a run id) finds
+    the run it names."""
+    def job(case: str = "ok", resume: str | None = None):
         corpus: Corpus = _current["corpus"]
         run_dir = corpus.next_dir("run")
         command = [
@@ -117,11 +111,7 @@ def job(_current):
         ]
         if resume:
             command += ["--resume", resume]
-        for key, value in params.items():
-            command += ["--param", f"{key}={value}"]
-        environment = {
-            **os.environ, **corpus.environment(), "AGENT_CORE_SCRIPTED_SCRIPTS": str(corpus.scripts(case)), **(env or {}),
-        }
+        environment = {**os.environ, **corpus.environment(), "AGENT_CORE_SCRIPTED_SCRIPTS": str(corpus.scripts(case))}
         r = subprocess.run(command, cwd=ROOT, env=environment, capture_output=True, text=True, stdin=subprocess.DEVNULL)
         record = run_dir / "record.json"
         return r.returncode, r.stdout, json.loads(record.read_text()) if record.exists() else None

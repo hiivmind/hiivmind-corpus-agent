@@ -35,6 +35,5 @@ Keep a list `embed_errors`, empty to begin with. The outcome is `done` unless st
 
 | Error | Behaviour |
 |-------|-----------|
-| `embeddings_status` or `stale_entries` returns an error (steps 2, 3) | Set `embeddings` to `skipped`, add the error to `embed_errors` and go to step 5. |
 | `embed` fails (step 4) | `embeddings` is `skipped`; add `embedding failed: <error>` to `embed_errors`. |
 | `embeddings_lag` returns an error (step 5) | `embeddings_lag` is null; add `embedding lag not computed: <error>` to `embed_errors`. |

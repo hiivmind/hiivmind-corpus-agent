@@ -47,13 +47,13 @@ The seven nodes are written from step 1b's `refresh` and `enrich` nodes (themsel
 
 | Node | From |
 |---|---|
-| `update-sources` | `refresh` phases 1 to 4: the freshness check is `source_freshness`; the diff and the index and config changes are `apply_source_update`; `drop_missing` follows, as the job called it |
-| `scan` | `scan`, with its input `batch` |
-| `index` | the job's `apply_scan` call, as `merge_scans` |
-| `concepts` | `enrich` phases 1 and 2: concepts come from the existing `graph.yaml` only; new-concept candidates are reported, never written; one `set_concepts` call |
-| `verify` | `enrich` phase 3: the sample is the first ten entries, not a random ten; `set_summary` |
-| `embed` | `enrich` phase 4 and `refresh` phase 5: it defers while entries are stale and never downloads a model |
-| `publish` | `repo_branch`, `repo_finish` and the job's pull request body, as numbered steps with `timeout 120` on every `git` and `gh` command |
+| `update-sources` | `refresh` phases 1 to 4, and the job's `drop_missing` call |
+| `scan` | `scan` |
+| `index` | the job's `apply_scan` call |
+| `concepts` | `enrich` phases 1 and 2 |
+| `verify` | `enrich` phase 3 |
+| `embed` | `enrich` phase 4 and `refresh` phase 5 |
+| `publish` | `repo_branch`, `repo_finish` and the job's pull request body |
 
 ## Written here as code, from the skills and the template
 
@@ -64,7 +64,7 @@ These are not copies. Each is the logic of a skill or of the template, as a func
 | `status.py`, `sources/` | `corpus_status`, the freshness pre-check; the seam for kinds of source | `hiivmind-corpus/skills/hiivmind-corpus-status-headless/SKILL.md` phases 1 to 4, at `d9ba1ad` |
 | `repo.py` | `prepare_base`, the first part of the template's Phase 2 | the template at `1a84e83` |
 | `index.py` | the layout-keeping writer, `stale_files`, `apply_scan` (the merge of the scans into `index.yaml`) and `drop_missing` (the removal of the entries whose files git says are gone from the source; the owner's decision of 2026-11-15, not from a skill) | `hiivmind-corpus/skills/hiivmind-corpus-enrich-headless/SKILL.md` Phase 2, at `d9ba1ad` |
-| `refresh.py` | the capabilities the nodes call: `apply_source_update` (the "v2 format" rules of `documents/index-updating.md` and its "Updating config.yaml after index changes"), `merge_scans`, the setters, `meta`, readiness, freshness, the embeddings and the previews | `refresh` and `enrich` of step 1b |
+| `refresh.py` | the capabilities the nodes call | `refresh` and `enrich` of step 1b; `apply_source_update` follows `documents/index-updating.md` |
 | `reference.py`, `run.py` | a document of `documents/`, whole or one section; `uv run` of a script of `scripts/` | new |
 
 ## After the runs with a model (step 1b, Task 10)

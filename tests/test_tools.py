@@ -1,6 +1,8 @@
 """The instance's tools over the corpus package, as the harness offers them: their names and arguments (design §4.4), and
 `merge_scans`, which reads the scans from its state and shows the model no argument (CRP-5)."""
 
+from types import SimpleNamespace
+
 from agent_core.tools.function import FunctionSource
 
 from tests.helpers import ROOT
@@ -48,3 +50,10 @@ async def test_a_tool_passes_the_corpus_of_the_settings(instance, corpus_stale):
     assert await source.call("stale_entries", {}, {}) == ["docs:a.md", "docs:b.md"]
     assert await source.call("stale_batches", {}, {}) == [{"source": "docs", "files": ["a.md", "b.md"]}]
     assert await source.call("prepare_base", {}, {}) is True
+
+
+async def test_a_relative_corpus_path_is_the_corpus_under_the_working_directory(instance, corpus_stale, monkeypatch):   # final review 4
+    monkeypatch.chdir(corpus_stale.path.parent)
+    settings = SimpleNamespace(**{**vars(corpus_stale.settings), "CORPUS_PATH": corpus_stale.path.name})
+    [preview] = await tools(instance, settings).call("verify_previews", {"entry_ids": ["docs:a.md"]}, {})
+    assert preview["entry_id"] == "docs:a.md" and preview["content_preview"]

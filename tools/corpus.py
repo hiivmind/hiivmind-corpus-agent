@@ -12,7 +12,8 @@ from hiivmind_corpus import reference as documents
 
 
 def _corpus(settings) -> Path:
-    return Path(settings.CORPUS_PATH)
+    """The corpus directory, absolute: the package runs its scripts in its own directory."""
+    return Path(settings.CORPUS_PATH).resolve()
 
 
 def _now() -> str:

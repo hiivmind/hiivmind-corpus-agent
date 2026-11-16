@@ -1,6 +1,7 @@
 """The nodes of the instance, run with the scripted backend: each node's contract."""
 
-from datetime import date
+import re
+from datetime import datetime, timezone
 
 import yaml
 from agent_core.backends.scripted import ScriptedBackend
@@ -118,6 +119,22 @@ def test_update_sources_keeps_the_recipe_for_git_sources():
     assert "is not handled by this instance yet" in text
 
 
+def test_update_sources_loops_over_sources_by_their_checkout_not_their_status():   # final review 1
+    """A source is `updated` only after `apply_source_update` (step 18), so Phase 3's loop cannot take "updated" as done."""
+    steps = {int(n): line for n, line in re.findall(r"(?m)^(\d+)\. (.*)$", (ROOT / "skills" / "update-sources" / "SKILL.md").read_text())}
+    assert "checked out" in steps[11] and "updated" not in steps[11]
+    assert "checked out" in steps[16]
+    assert "checked out" in steps[17] and "updated" not in steps[17]
+
+
+def test_a_node_that_fails_on_purpose_names_the_error_in_its_error_list():   # final review 2: `reason` is not a declared output
+    for node, errors in (("index", "index_errors"), ("concepts", "concept_errors")):
+        text = (ROOT / "skills" / node / "SKILL.md").read_text()
+        for line in text.splitlines():
+            if "EXIT `failed`" in line and not line.startswith("|"):
+                assert f"`{errors}`" in line, f"{node}: {line}"
+
+
 # --- index ------------------------------------------------------------------------------------------------------------
 
 def test_index_declares_its_contract(instance):
@@ -157,7 +174,8 @@ async def test_concepts_writes_through_set_concepts(corpus_stale, run):
     result = await run("concepts", {"enriched_ids": ["docs:a.md"]})
     assert result["outcome"] == "done" and result["outputs"]["concepts_assigned"] == 1
     assert corpus_stale.entry("docs:a.md")["concepts"] == ["concept"]
-    assert yaml.safe_load((corpus_stale.path / "index.yaml").read_text())["meta"]["generated_at"].startswith(date.today().isoformat())
+    utc_today = datetime.now(timezone.utc).date().isoformat()   # the tools stamp `meta` in UTC
+    assert yaml.safe_load((corpus_stale.path / "index.yaml").read_text())["meta"]["generated_at"].startswith(utc_today)
 
 
 def test_concepts_keeps_the_matching_rules():

@@ -34,7 +34,7 @@ When these steps say "the zero result", it is the outputs `concepts_assigned` 0,
 Outputs: the target entries, and the concepts there are to assign.
 
 1. If "Entries" reads "not given" or names no id, EXIT `done` with the zero result.
-2. CALL `files__read_text_file` with the path `{{settings.CORPUS_PATH}}/index.yaml`. If it returns an error, EXIT `failed` with output `reason` set to the error.
+2. CALL `files__read_text_file` with the path `{{settings.CORPUS_PATH}}/index.yaml`. If it returns an error, add `index.yaml not read: <error>` to `concept_errors` and EXIT `failed` with outputs `reason` set to the error and `concept_errors`, so that `publish` reports it.
 3. The target entries are the entries of `index.yaml` whose `id` is one of the ids in "Entries", in the order of "Entries". An id that has no entry in the index is left out and `<id>: no entry in the index` is added to `concept_errors`. If no target entry is left, EXIT `done` with the zero result.
 4. CALL `files__read_text_file` with the path `{{settings.CORPUS_PATH}}/graph.yaml`. If it returns an error, or the file has no `concepts` or none in it, there is no concept to assign: EXIT `done` with the zero result. Otherwise CALL `reference` with `doc` `graph` and `section` `Schema Definition`. That section says what a concept is: the id of a concept is its key under `concepts`, and an entry belongs to a concept by having the id in its own `concepts` list.
 
@@ -60,7 +60,7 @@ Repeat steps 5 and 6 for each target entry that has no concepts, one after anoth
 
 | Error | Behaviour |
 |-------|-----------|
-| `error:` on `index.yaml` (step 2) | EXIT `failed` with output `reason` set to the error. |
+| `error:` on `index.yaml` (step 2) | EXIT `failed` with the error in `reason` and in `concept_errors`. |
 | `error:` on `graph.yaml` (step 4) | There is no concept to assign: EXIT `done` with the zero result. |
 | `set_concepts` returns an error (step 9) | Add `index update failed: <error>` to `concept_errors`; nothing is assigned. |
 | `render-index.sh` exits with a code that is not 0 (step 9) | Add `index.md not rendered: <error>` to `concept_errors`. |
