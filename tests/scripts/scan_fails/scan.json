@@ -1,0 +1,3 @@
+[
+  [["exit", {"outcome": "failed", "outputs": {"reason": "the test makes every scan fail"}}]]
+]

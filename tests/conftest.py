@@ -105,14 +105,18 @@ def run(_current):
 
 @pytest.fixture
 def job(_current):
-    """`job(case="ok", env=None, **params)`: the refresh sequence in a subprocess; `(exit code, standard output, run record or None)`."""
-    def job(case: str = "ok", env: dict[str, str] | None = None, **params: str):
+    """`job(case="ok", env=None, resume=None, **params)`: the refresh sequence in a subprocess; `(exit code, standard output,
+    run record or None)`. Every run of a test keeps its directory beside the others, so one journal holds them all and
+    `resume` (a run id) finds the run it names."""
+    def job(case: str = "ok", env: dict[str, str] | None = None, resume: str | None = None, **params: str):
         corpus: Corpus = _current["corpus"]
         run_dir = corpus.next_dir("run")
         command = [
             sys.executable, "-m", "agent_core.core.cli", "job", str(INSTANCE_YAML), "refresh",
             "--settings", str(corpus.settings_file), "--backend", "scripted", "--run-dir", str(run_dir),
         ]
+        if resume:
+            command += ["--resume", resume]
         for key, value in params.items():
             command += ["--param", f"{key}={value}"]
         environment = {

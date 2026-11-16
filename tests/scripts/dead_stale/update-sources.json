@@ -1,0 +1,7 @@
+[
+  [["files__read_text_file", {"path": "@CORPUS@/config.yaml"}]],
+  [["shell__run", {"command": "if [ ! -f @CORPUS@/index.yaml ]; then echo v1; elif grep -qs \"Run hiivmind-corpus-build\" @CORPUS@/index.md; then echo placeholder; else echo built; fi"}]],
+  [["source_freshness", {}]],
+  [["drop_missing", {"sources": [{"id": "docs", "status": "current"}]}]],
+  [["exit", {"outcome": "current", "outputs": {"sources": [{"id": "docs", "type": "git", "status": "current", "old_sha": "@NEW_SHA7@", "new_sha": "@NEW_SHA7@", "files_changed": 0}], "index_changes": {"added": 0, "modified": 0, "removed": 0, "stale_entries": []}, "removed_ids": ["docs:c.md"], "update_errors": []}}]]
+]
