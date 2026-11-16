@@ -1,0 +1,4 @@
+[
+  [["verify_previews", {"entry_ids": ["docs:a.md"]}]],
+  [["exit", {"outcome": "failed", "outputs": {"reason": "the test makes verify fail"}}]]
+]

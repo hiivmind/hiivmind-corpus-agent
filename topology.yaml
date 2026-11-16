@@ -10,3 +10,26 @@ exits:
   done: route
   declined: route
   failed: route
+sequences:
+  refresh:
+    description: Bring one corpus up to date with its sources and open a pull request.
+    start: update-sources
+    inputs: {sources: all}
+    checks:
+      - {tool: prepare_base, message: "The corpus repository could not be prepared."}
+      - {tool: corpus_ready, message: "The corpus has no config.yaml, no source, or no built v2 index."}
+      - {tool: refresh_needed, outcome: current, message: "Already current."}
+    transitions:
+      check: {current: end}
+      update-sources:
+        updated: {fan_out: scan, over: {tool: stale_batches}, as: batch, into: scans}
+        current: {fan_out: scan, over: {tool: stale_batches}, as: batch, into: scans}
+        declined: end
+        failed: end
+        skipped: publish
+      scan: {done: index, failed: index}
+      index: {done: concepts, skipped: concepts, failed: publish}
+      concepts: {done: verify, skipped: verify, failed: verify}
+      verify: {done: embed, skipped: embed, failed: embed}
+      embed: {done: publish, deferred: publish, skipped: publish, failed: publish}
+      publish: {published: end, committed: end, nothing-to-publish: end, skipped: end, failed: end}

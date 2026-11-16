@@ -1,6 +1,6 @@
 # PORT
 
-This instance is a copy of the existing corpus refresh, rewritten to the agent-core verbs. The two are kept in step by hand. Each file brought over is listed here with its source and the revision it was taken at.
+This instance is a port of the existing corpus refresh, rewritten to the agent-core verbs and, since step 1c, split into the nodes of the `refresh` sequence over the corpus package. Nothing keeps the two in step: the plugin is left as it is. Each file brought over is listed here with its source and the revision it was taken at.
 
 ## Source revisions
 
@@ -43,20 +43,30 @@ The copied documents name these scripts and documents. They stay as written; the
 
 ## Behaviour kept from the skills
 
-- `skills/refresh/SKILL.md` (from `hiivmind-corpus-refresh-headless` at `d9ba1ad`, phases 1 to 5): the embedding path of Phase 5 (step 29: `detect.py`, `embed.py`, the statuses `updated`, `no-model` and `not-installed`) is not reached in a run that gets there from step 27. Every entry the refresh adds or modifies is stale, so when `added` or `modified` is above 0 step 28 defers the embedding, and when both are 0 step 27 skips it. The skill has the same two rules in the same order and the same result; they are kept as they are, and the `enrich` node embeds after the summaries are written.
-- `skills/enrich/SKILL.md` (from `hiivmind-corpus-enrich-headless` at `d9ba1ad`, phases 3 to 5): phases 1 and 2 are not in the node (the job finds the stale entries with `stale_files`, fans the scanning out with `scan` and merges it with `apply_scan`, which also clears `stale`). The node takes the ids of the re-scanned entries as input. Concepts are assigned from the existing `graph.yaml` only, and new-concept candidates are reported, never written. The verification sample is the first ten entries, not a random ten. There is no result file: the outputs are the result.
+The seven nodes are written from step 1b's `refresh` and `enrich` nodes (themselves from `hiivmind-corpus-refresh-headless` and `hiivmind-corpus-enrich-headless` at `d9ba1ad`) and its job script, which step 1c deleted. The port made only these changes (the design's §4.3): the procedures are split among the nodes; each step that edited `index.yaml`, `config.yaml` or `graph.yaml` by exact text calls a package tool; a step that repeated code calls the code; scripts and documents are reached through tools (`reference` for a document, a named tool for each script); `scan` takes one `batch`, and each node names its own error list. Every other step keeps its wording.
+
+| Node | From |
+|---|---|
+| `update-sources` | `refresh` phases 1 to 4: the freshness check is `source_freshness`; the diff and the index and config changes are `apply_source_update`; `drop_missing` follows, as the job called it |
+| `scan` | `scan`, with its input `batch` |
+| `index` | the job's `apply_scan` call, as `merge_scans` |
+| `concepts` | `enrich` phases 1 and 2: concepts come from the existing `graph.yaml` only; new-concept candidates are reported, never written; one `set_concepts` call |
+| `verify` | `enrich` phase 3: the sample is the first ten entries, not a random ten; `set_summary` |
+| `embed` | `enrich` phase 4 and `refresh` phase 5: it defers while entries are stale and never downloads a model |
+| `publish` | `repo_branch`, `repo_finish` and the job's pull request body, as numbered steps with `timeout 120` on every `git` and `gh` command |
 
 ## Written here as code, from the skills and the template
 
-These are not copies. Each is the logic of a skill or of the template, as a function or a script, so that no model call is spent on a step that has no judgement in it.
+These are not copies. Each is the logic of a skill or of the template, as a function or a script, so that no model call is spent on a step that has no judgement in it. They are in the corpus package, `packages/corpus-lib/src/hiivmind_corpus/`.
 
-| File here | What it is | Taken from, at |
+| File there | What it is | Taken from, at |
 |---|---|---|
-| `jobs/refresh.py` | the job: the template's phases in order, with the scans run at the same time | `hiivmind-corpus-scheduler/TEMPLATE-corpus-refresh.md` at `1a84e83` |
-| `tools/status.py`, `tools/sources/` | `corpus_status`, the freshness pre-check; the seam for kinds of source | `hiivmind-corpus/skills/hiivmind-corpus-status-headless/SKILL.md` phases 1 to 4, at `d9ba1ad` |
-| `tools/repo.py` | `repo_prepare` (the template's Phase 2), `repo_branch`, `repo_finish` (Phase 4) | the template at `1a84e83` |
-| `tools/index.py` | `stale_files`, `apply_scan` (the merge of the scans into `index.yaml`) and `drop_missing` (the removal of the entries whose files git says are gone from the source; the owner's decision of 2026-11-15, not from a skill) | `hiivmind-corpus/skills/hiivmind-corpus-enrich-headless/SKILL.md` Phase 2, at `d9ba1ad` |
+| `status.py`, `sources/` | `corpus_status`, the freshness pre-check; the seam for kinds of source | `hiivmind-corpus/skills/hiivmind-corpus-status-headless/SKILL.md` phases 1 to 4, at `d9ba1ad` |
+| `repo.py` | `prepare_base`, the first part of the template's Phase 2 | the template at `1a84e83` |
+| `index.py` | the layout-keeping writer, `stale_files`, `apply_scan` (the merge of the scans into `index.yaml`) and `drop_missing` (the removal of the entries whose files git says are gone from the source; the owner's decision of 2026-11-15, not from a skill) | `hiivmind-corpus/skills/hiivmind-corpus-enrich-headless/SKILL.md` Phase 2, at `d9ba1ad` |
+| `refresh.py` | the capabilities the nodes call: `apply_source_update` (the "v2 format" rules of `documents/index-updating.md` and its "Updating config.yaml after index changes"), `merge_scans`, the setters, `meta`, readiness, freshness, the embeddings and the previews | `refresh` and `enrich` of step 1b |
+| `reference.py`, `run.py` | a document of `documents/`, whole or one section; `uv run` of a script of `scripts/` | new |
 
-## After the runs with a model (Task 10)
+## After the runs with a model (step 1b, Task 10)
 
 The runs on `claude-haiku-5-5` (the two fixture corpora) and on `claude-sonnet-5-5` (Polars, without pushing) needed no change to a ported procedure or document. What the Polars run found is in `README.md`, "Acceptance runs".
