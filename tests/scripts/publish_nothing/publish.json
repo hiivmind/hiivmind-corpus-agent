@@ -1,0 +1,4 @@
+[
+  [["shell__run", {"command": "timeout 120 git -C @CORPUS@ status --porcelain -- ."}]],
+  [["exit", {"outcome": "nothing-to-publish", "outputs": {"branch": null, "pr_url": null, "superseded_prs": []}}]]
+]

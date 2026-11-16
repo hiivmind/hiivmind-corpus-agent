@@ -1,0 +1,23 @@
+[
+  [["shell__run", {"command": "timeout 120 git -C @CORPUS@ status --porcelain -- ."}]],
+  [["shell__run", {"command": "timeout 120 git -C @CORPUS@ remote get-url --push origin"}]],
+  [["shell__run", {"command": "timeout 120 git -C @CORPUS@ for-each-ref --format='%(refname:short)' refs/remotes/origin/"}]],
+  [["shell__run", {"command": "timeout 120 gh pr list --repo test/test --head @OLD_BRANCH@ --state open --json number,createdAt"}]],
+  [["shell__run", {"command": "date +%Y-%m-%d"}]],
+  [["shell__run", {"command": "timeout 120 git -C @CORPUS@ for-each-ref --format='%(refname:short)' refs/heads refs/remotes/origin"}]],
+  [["shell__run", {"command": "timeout 120 git -C @CORPUS@ checkout -b automated/corpus-refresh-test-@TODAY@"}]],
+  [["shell__run", {"command": "timeout 120 git -C @CORPUS@ add -A -- ."}]],
+  [["shell__run", {"command": "timeout 120 git -C @CORPUS@ rev-parse --show-prefix"}]],
+  [["shell__run", {"command": "timeout 120 git -C @CORPUS@ diff --cached --name-only"}]],
+  [["stale_entries", {}]],
+  [["shell__run", {"command": "mktemp"}]],
+  [["files__write_file", {"path": "@CLONE@/../message.md", "content": "corpus: refresh @TODAY@\n\n## Sources\n\n- none looked at\n"}]],
+  [["shell__run", {"command": "timeout 120 git -C @CORPUS@ commit -q -F @CLONE@/../message.md"}]],
+  [["shell__run", {"command": "timeout 120 git -C @CORPUS@ push -u origin automated/corpus-refresh-test-@TODAY@"}]],
+  [["shell__run", {"command": "mktemp"}]],
+  [["files__write_file", {"path": "@CLONE@/../body.md", "content": "## Sources\n\n- none looked at\n"}]],
+  [["shell__run", {"command": "timeout 120 gh pr create --repo test/test --base main --head automated/corpus-refresh-test-@TODAY@ --title \"corpus: refresh @TODAY@\" --body-file @CLONE@/../body.md"}]],
+  [["shell__run", {"command": "timeout 120 gh pr close 12 --repo test/test --comment \"Superseded by https://github.com/test/test/pull/1 (regenerated from current upstream).\" --delete-branch"}]],
+  [["shell__run", {"command": "timeout 120 git -C @CORPUS@ checkout main"}]],
+  [["exit", {"outcome": "published", "outputs": {"branch": "automated/corpus-refresh-test-@TODAY@", "pr_url": "https://github.com/test/test/pull/1", "superseded_prs": [12]}}]]
+]

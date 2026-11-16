@@ -5,6 +5,7 @@ nodes:
   - {name: concepts, path: skills/concepts}
   - {name: verify, path: skills/verify}
   - {name: embed, path: skills/embed}
+  - {name: publish, path: skills/publish}
 exits:
   done: route
   declined: route

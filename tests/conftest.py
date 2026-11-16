@@ -92,10 +92,11 @@ def load(instance):
 
 @pytest.fixture
 def run(_current):
-    """`await run(node, inputs, case=None)`: one node of the instance, driven by `tests/scripts/<case or "ok">/<node>.json`."""
-    async def run(node: str, inputs: dict, case: str | None = None) -> dict:
+    """`await run(node, inputs, case=None, **tokens)`: one node of the instance, driven by `tests/scripts/<case or "ok">/<node>.json`
+    filled with `tokens` too."""
+    async def run(node: str, inputs: dict, case: str | None = None, **tokens: str) -> dict:
         corpus: Corpus = _current["corpus"]
-        script = json.loads((corpus.scripts(case) / f"{node}.json").read_text())
+        script = json.loads((corpus.scripts(case, **tokens) / f"{node}.json").read_text())
         run_dir = corpus.next_dir("run")
         async with open_run(INSTANCE_YAML, settings_files=[corpus.settings_file], run_dir=run_dir) as opened:
             return await opened.run_node(node, inputs, driver=ScriptedBackend(script=script))
