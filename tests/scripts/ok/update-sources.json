@@ -1,0 +1,17 @@
+[
+  [["files__read_text_file", {"path": "@CORPUS@/config.yaml"}]],
+  [["shell__run", {"command": "if [ ! -f @CORPUS@/index.yaml ]; then echo v1; elif grep -qs \"Run hiivmind-corpus-build\" @CORPUS@/index.md; then echo placeholder; else echo built; fi"}]],
+  [["source_freshness", {}]],
+  [["reference", {"doc": "sources/git", "section": "Sparse Checkout for Large Repositories"}]],
+  [["shell__run", {"command": "test -d @CORPUS@/.source/docs/.git && echo cloned || echo missing"}]],
+  [["shell__run", {"command": "mkdir -p @CORPUS@/.source && git clone --filter=blob:none --sparse --depth=50 --branch main @UPSTREAM@ @CORPUS@/.source/docs"}]],
+  [["shell__run", {"command": "git -C @CORPUS@/.source/docs sparse-checkout set docs"}]],
+  [["shell__run", {"command": "git -C @CORPUS@/.source/docs fetch --depth=50 origin main"}]],
+  [["shell__run", {"command": "git -C @CORPUS@/.source/docs cat-file -e @OLD_SHA@^{commit}"}]],
+  [["shell__run", {"command": "git -C @CORPUS@/.source/docs checkout -q -B main FETCH_HEAD"}]],
+  [["shell__run", {"command": "git -C @CORPUS@/.source/docs rev-parse HEAD"}]],
+  [["apply_source_update", {"source": "docs", "old_sha": "@OLD_SHA@", "new_sha": "@NEW_SHA@"}]],
+  [["drop_missing", {"sources": [{"id": "docs", "status": "updated"}]}]],
+  [["shell__run", {"command": "cd @CORPUS@ && bash ./render-index.sh index.yaml"}]],
+  [["exit", {"outcome": "updated", "outputs": {"sources": [{"id": "docs", "type": "git", "status": "updated", "old_sha": "@OLD_SHA7@", "new_sha": "@NEW_SHA7@", "files_changed": 3}], "index_changes": {"added": 1, "modified": 1, "removed": 1, "stale_entries": ["docs:a.md", "docs:d.md"]}, "removed_ids": ["docs:c.md"], "update_errors": []}}]]
+]

@@ -1,0 +1,1 @@
+CALL `shell__run` with the command `cd {{settings.CORPUS_PATH}} && bash ./render-index.sh index.yaml`. If its exit code is not 0, add `index.md not rendered: <error>` to the node's error list, `<error>` being what the command printed.

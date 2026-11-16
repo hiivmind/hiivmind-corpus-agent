@@ -1,5 +1,7 @@
 nodes:
+  - {name: update-sources, path: skills/update-sources}
   - {name: scan, path: skills/scan}
+  - {name: index, path: skills/index}
 exits:
   done: route
   declined: route
