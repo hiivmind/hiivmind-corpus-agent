@@ -75,7 +75,7 @@ Outputs: `branch`.
 11. CALL `stale_entries`: the ids still stale, for "Needs attention".
 12. Write the message. Its first line, the title, is `corpus: refresh <today>`; then an empty line; then the body, in Markdown, in these sections, each list showing at most 50 items and then a line `- and <n> more`:
     - `## Sources`: one line for each source, `- <Updated|Current|Failed|Skipped as manual>: `<id>` (<type>)`, and for an updated source `: <old_sha> -> <new_sha>, <files_changed> files changed`, for a failed or skipped one `: <error>`; `- none looked at` when there is none.
-    - `## Index`: `- <added> added, <modified> modified, <removed> removed`; `- Removed <n> entries whose files are gone from the source` with their ids, when there are any; `- Enriched: <n>`; `- Skipped: <n>` with each skipped entry and its reason, and each failed scan run with its files and reason.
+    - `## Index`: `- <added> added, <modified> modified, <removed> removed`; `- Removed <n> entries whose files are gone from the source` with their ids, when there are any; `- Enriched: <n>` with the ids of the entries enriched; `- Skipped: <n>` with each skipped entry and its reason, and each failed scan run with its files and reason.
     - `## Verification`: `- Sampled <sampled>, failed <failed>` and each drift entry, or `- not run`.
     - `## New concept candidates (for the reviewer's decision)`: each candidate's label and evidence, or `- none`.
     - `## Embeddings`: `- <embeddings>`, and `, lag <n>` when the lag is a number.
