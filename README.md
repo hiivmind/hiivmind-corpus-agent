@@ -195,6 +195,35 @@ Tokens, from `record.json`:
 
 The dead entries that step 3 left stale are removed (33 in the record); nothing is left under "Needs attention".
 
+### Step 1c: Polars on a scratch copy, pushing, `claude-haiku-5-5` (the `refresh` sequence)
+
+2026-11-17, run `refresh-20261116T133407Z-ed3063`, on a scratch clone of `hiivmind-corpus-data` whose `origin` is the private repository `hiivmind/hiivmind-corpus-data-scratch`, with `--param CORPUS_REPO=hiivmind/hiivmind-corpus-data-scratch --param PUSH=true`. The sequence ended `done` (exit 0) in 5 minutes and opened https://github.com/hiivmind/hiivmind-corpus-data-scratch/pull/1 (branch `automated/corpus-refresh-polars-2026-11-17`). Steps: checks met, `update-sources` updated, `scan[list]`, `scan[1]`, `index`, `concepts`, `verify`, `embed` done, `publish` published. It started from the same commit of `hiivmind-corpus-data` as step 4, and the corpus it committed matches step 4's result:
+
+| What | Result |
+|---|---|
+| Source | `polars`, `updated` `5075c53` to `8c19cc2`; 26 files changed, all `M` |
+| Entries | 112 before, 79 after: 33 removed by `drop_missing` (files gone from `docs/source` at the head), 20 marked stale by the update, 26 enriched (with 6 left stale by earlier runs), 0 skipped, none still stale |
+| Config | only `last_commit_sha`, `last_indexed_at` and `index.last_updated_at` changed |
+| Verification | sampled 10, failed 0, no drift; 4 concepts assigned; 1 new concept candidate (`Contributing`: 3 entries) |
+| Embeddings | `no-model`, lag 26 |
+| Model calls | 50 (update-sources 13, scan 6, index 3, concepts 4, verify 2, embed 4, publish 18) |
+
+| Node run | Model calls | `tokens_sent` | Read from cache | Written to cache |
+|---|---|---|---|---|
+| `update-sources#1` | 13 | 159,395 | 145,820 | 13,547 |
+| `scan#2` | 6 | 323,528 | 216,729 | 106,785 |
+| `index#3` | 3 | 16,892 | 11,870 | 5,014 |
+| `concepts#4` | 4 | 122,793 | 82,723 | 40,060 |
+| `verify#5` | 2 | 24,397 | 7,299 | 17,092 |
+| `embed#6` | 4 | 24,079 | 18,867 | 5,202 |
+| `publish#7` | 18 | 241,996 | 225,158 | 16,800 |
+| Total | 50 | 913,080 | 708,466 (77.6%) | 204,500 |
+
+What the model wrote wrong, in the facts of `update-sources` and so in the pull request's body (the index itself, written by the tools, is right):
+- `index_changes.removed` is 40; the update removed 0 and `drop_missing` 33;
+- `removed_ids` lists 32 of the 33 (`polars:polars-on-premises/bare-metal/configuration/persistence.md` is missing);
+- `update_errors` holds `excluded-by-config: none`, though nothing was excluded.
+
 ### Not yet run
 
 Step 5 (criterion 1 on a real corpus: exit 0, `already current`, no model call) is not run: `detect.py` prints `no-model`, so the embeddings lag stays above 0. It runs on a corpus whose embeddings are ready (`detect.py` prints `ready`) or on one with no `index-embeddings.lance/`; the result will say which.
