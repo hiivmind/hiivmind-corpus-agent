@@ -1,7 +1,5 @@
 nodes:
-  - {name: refresh, path: skills/refresh}
   - {name: scan, path: skills/scan}
-  - {name: enrich, path: skills/enrich}
 exits:
   done: route
   declined: route

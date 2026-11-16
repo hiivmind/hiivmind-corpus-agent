@@ -117,13 +117,13 @@ def _path_of(entry: dict) -> str:
     return entry.get("path") or str(entry["id"]).removeprefix(f"{_source_of(entry)}:")
 
 
-def stale_files(settings) -> dict:
+def stale_files(corpus: Path) -> dict:
     """The file entries of the index marked stale: `by_source` (source id to relative paths) and `entry_ids`.
 
     A section entry (`tier: section`) is not a file to scan: its parent file is re-scanned when stale, and a section keeps
     its line range until the next build, as `enrich-headless` does.
     """
-    entries = load_index(Path(settings.CORPUS_PATH) / "index.yaml").get("entries") or []
+    entries = load_index(Path(corpus) / "index.yaml").get("entries") or []
     by_source: dict[str, list[str]] = {}
     ids: list[str] = []
     for entry in entries:
@@ -133,7 +133,7 @@ def stale_files(settings) -> dict:
     return {"by_source": by_source, "entry_ids": ids}
 
 
-def apply_scan(scans: list, settings) -> dict:
+def apply_scan(scans: list, corpus: Path) -> dict:
     """Merge the scans into `index.yaml`.
 
     `scans` has one item for each scan run, done or not: `{"source": str, "files": [str], "entries": [dict], "error": str | None}`.
@@ -144,7 +144,7 @@ def apply_scan(scans: list, settings) -> dict:
 
     Returns `enriched` (entry ids) and `skipped` (`id`, `reason`).
     """
-    index_file = Path(settings.CORPUS_PATH) / "index.yaml"
+    index_file = Path(corpus) / "index.yaml"
     index = load_index(index_file)
     by_id = {entry["id"]: entry for entry in index.get("entries") or []}
     now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -254,7 +254,7 @@ def _checked_out(corpus: Path, source: dict, status: str | None) -> set[str] | N
     return set(files.stdout.split("\0")) - {""}
 
 
-def drop_missing(sources: list, settings) -> dict:
+def drop_missing(sources: list, corpus: Path) -> dict:
     """Remove the entries whose file is gone from its git source: `{"removed": [entry ids]}`.
 
     `sources` is what the refresh reported, `{"id": str, "status": str}` for each source (`[]` when the refresh did not end
@@ -263,7 +263,7 @@ def drop_missing(sources: list, settings) -> dict:
     checkout, the entry goes from `index.yaml`, and its id from the `entries` lists of `graph.yaml`, if it has any. When anything
     went, `meta.entry_count` follows and `index.md` is rendered again (`render-index.sh`). A source that fails any check loses nothing.
     """
-    corpus = Path(settings.CORPUS_PATH)
+    corpus = Path(corpus)
     config = yaml.safe_load((corpus / "config.yaml").read_text()) or {}
     reported = {s.get("id"): s.get("status") for s in sources or [] if isinstance(s, dict)}
     git = {s["id"]: s for s in config.get("sources") or [] if s.get("type") == "git"}

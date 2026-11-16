@@ -10,11 +10,3 @@ settings:
   class: settings.CorpusSettings
   files: [config/base.yaml]
   env_prefix: HIIVMIND_CORPUS_
-tools:
-  corpus_status: tools.status:corpus_status
-  repo_prepare: tools.repo:repo_prepare
-  repo_branch: tools.repo:repo_branch
-  repo_finish: tools.repo:repo_finish
-  drop_missing: tools.index:drop_missing
-  stale_files: tools.index:stale_files
-  apply_scan: tools.index:apply_scan

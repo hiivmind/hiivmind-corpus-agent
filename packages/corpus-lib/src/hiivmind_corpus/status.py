@@ -1,22 +1,15 @@
 """`corpus_status`: the freshness pre-check. Reads the corpus; clones nothing, fetches nothing, changes nothing."""
 
 import json
-import os
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
 
-from tools.sources import kind_of
+from hiivmind_corpus.sources import kind_of
 
 STALE_MARK = "\u23f3 STALE"
-
-
-def _instance_root() -> Path:
-    """The instance's directory: named by the harness, else the one this file is in. Never the working directory."""
-    named = os.environ.get("AGENT_CORE_INSTANCE")
-    return Path(named) if named else Path(__file__).resolve().parent.parent
 
 
 def _when(text: object) -> datetime | None:
@@ -27,11 +20,10 @@ def _when(text: object) -> datetime | None:
     return when if when.tzinfo else when.replace(tzinfo=timezone.utc)
 
 
-def _embeddings_generated_at(lance: Path) -> datetime | None:
+def _embeddings_generated_at(lance: Path, scripts: Path) -> datetime | None:
     """When the embeddings were made, by `lance_meta.py`; `None` when the directory has no `_meta` table (exit 2)."""
-    root = _instance_root()
-    script = root / "scripts" / "lance_meta.py"
-    done = subprocess.run(["uv", "run", str(script), f"{lance}/"], cwd=root, capture_output=True, text=True)
+    script = scripts / "lance_meta.py"
+    done = subprocess.run(["uv", "run", str(script), f"{lance}/"], cwd=scripts, capture_output=True, text=True)
     if done.returncode == 2:
         return None
     if done.returncode != 0:
@@ -44,13 +36,13 @@ def _embeddings_generated_at(lance: Path) -> datetime | None:
     return _when(stamp) if stamp else None
 
 
-def corpus_status(settings) -> dict:
+def corpus_status(corpus: Path, scripts: Path) -> dict:
     """Whether the corpus needs a refresh: each source's freshness against its upstream, entries flagged stale, embedding lag.
 
     Returns `corpus`, `index_format` (`v2`, `v1`, `none`), `sources` (`id`, `type`, `freshness`: `current`, `behind` or
     `unknown`), `stale_entries`, `embeddings_lag` (`None` without embeddings), `refresh_needed` and `errors`.
     """
-    corpus = Path(settings.CORPUS_PATH)
+    corpus = Path(corpus)
     config_file = corpus / "config.yaml"
     if not config_file.is_file():
         raise FileNotFoundError(f"corpus_status: no config.yaml in {corpus}")
@@ -88,7 +80,7 @@ def corpus_status(settings) -> dict:
     embeddings_lag = None
     lance = corpus / "index-embeddings.lance"
     if lance.exists():
-        embedded_at = _embeddings_generated_at(lance)
+        embedded_at = _embeddings_generated_at(lance, Path(scripts))
         if embedded_at is not None:
             embeddings_lag = sum(1 for e in entries if (when := _when(e.get("last_indexed"))) and when > embedded_at)
 

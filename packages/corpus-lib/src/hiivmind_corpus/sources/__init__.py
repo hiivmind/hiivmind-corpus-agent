@@ -1,14 +1,14 @@
 """The seam for source kinds.
 
 A kind of source (git, web, llms-txt, local) is a module in this package with a class that has `freshness`, a line in
-`SOURCE_KINDS`, its reference document `reference/sources/<type>.md`, and the server it needs in `instance.yaml`.
+`SOURCE_KINDS`, its reference document `documents/sources/<type>.md`, and the server it needs in the instance.
 Nothing else changes: the job, the other tools and the nodes' contracts stay as they are.
 """
 
 from pathlib import Path
 from typing import Protocol
 
-from tools.sources import git
+from hiivmind_corpus.sources import git
 
 
 class SourceKind(Protocol):

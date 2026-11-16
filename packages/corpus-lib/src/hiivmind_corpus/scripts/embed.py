@@ -38,7 +38,6 @@ from constants import (  # noqa: E402
     CHUNKS_TABLE_NAME,
     META_TABLE,
     PASSAGE_PREFIX,
-    QUERY_PREFIX,
     VECTOR_INDEX_THRESHOLD,
 )
 

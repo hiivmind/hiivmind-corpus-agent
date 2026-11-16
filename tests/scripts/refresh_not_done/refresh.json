@@ -1,4 +1,0 @@
-[
-  [["files__edit_file", {"path": "@CORPUS@/config.yaml", "edits": [{"oldText": "  last_commit_sha: @OLD_SHA@\n", "newText": "  last_commit_sha: @NEW_SHA@\n"}]}]],
-  [["exit", {"outcome": "failed", "outputs": {"sources": [{"id": "docs", "type": "git", "status": "updated", "old_sha": "@OLD_SHA7@", "new_sha": "@NEW_SHA7@", "files_changed": 3}], "index_changes": {"added": 0, "modified": 0, "removed": 0, "stale_entries": []}, "embeddings": "skipped", "embeddings_lag": null, "errors": [], "reason": "the refresh gave up"}}]]
-]
