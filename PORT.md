@@ -23,8 +23,9 @@ The scripts and documents the nodes use are in the corpus package, `packages/cor
 | `documents/sources/git.md`, `documents/sources/shared.md` | `hiivmind-corpus/lib/corpus/patterns/sources/` |
 | `documents/index-updating.md`, `index-format-v2.md`, `freshness.md`, `embeddings.md`, `paths.md`, `graph.md` | `hiivmind-corpus/lib/corpus/patterns/` |
 | `documents/source-scanner.md` | `hiivmind-corpus/agents/source-scanner.md` |
+| `templates/render-index.sh` | `hiivmind-corpus/templates/render-index.sh`, the tiered-capable renderer the plugin's `migrate` copies |
 
-The corpus's own `render-index.sh` is used where it is, as the skills use it; it is not copied here.
+A v2 corpus's own `render-index.sh` is used where it is, as the skills use it. `migrate_index` copies the package's `templates/render-index.sh` into the corpus it migrates, as the plugin's `migrate` does.
 
 ## Edited copies
 
@@ -64,7 +65,9 @@ These are not copies. Each is the logic of a skill or of the template, as a func
 | `status.py`, `sources/` | `corpus_status`, the freshness pre-check; the seam for kinds of source | `hiivmind-corpus/skills/hiivmind-corpus-status-headless/SKILL.md` phases 1 to 4, at `d9ba1ad` |
 | `repo.py` | `prepare_base`, the first part of the template's Phase 2 | the template at `1a84e83` |
 | `index.py` | the layout-keeping writer, `stale_files`, `apply_scan` (the merge of the scans into `index.yaml`) and `drop_missing` (the removal of the entries whose files git says are gone from the source; the owner's decision of 2026-11-15, not from a skill) | `hiivmind-corpus/skills/hiivmind-corpus-enrich-headless/SKILL.md` Phase 2, at `d9ba1ad` |
-| `refresh.py` | the capabilities the nodes call | `refresh` and `enrich` of step 1b; `apply_source_update` follows `documents/index-updating.md` |
+| `refresh.py` | the capabilities the nodes call; `status_report` and the checks of the job sequences | `refresh` and `enrich` of step 1b; `apply_source_update` follows `documents/index-updating.md` |
+| `migrate.py` | `migrate_index`: the v1 parser, the id check and the restore | `hiivmind-corpus/skills/hiivmind-corpus-migrate/SKILL.md` phases 1, 2, 3 (resolution only) and 5, at `d9ba1ad` |
+| `graph.py` | `validate_graph` | `documents/graph.md`, "Validation Rules" |
 | `reference.py`, `run.py` | a document of `documents/`, whole or one section; `uv run` of a script of `scripts/` | new |
 
 ## After the runs with a model (step 1b, Task 10)

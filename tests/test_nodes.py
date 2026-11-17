@@ -109,22 +109,23 @@ async def test_update_sources_procedure_is_filled_with_the_corpus_and_the_source
     assert f"cd {corpus.path} && bash ./render-index.sh index.yaml" in text   # the fragment, included and filled
 
 
-def test_update_sources_keeps_the_recipe_for_git_sources():
-    """The steps for a git source keep the skill's constraints in its words (the task's git constraints)."""
-    text = (ROOT / "skills" / "update-sources" / "SKILL.md").read_text()
+async def test_update_sources_keeps_the_recipe_for_git_sources(corpus):
+    """The steps for a git source keep the skill's constraints in its words (the task's git constraints), the fragment's
+    included."""
+    text = await filled_procedure(corpus, "update-sources", {"sources": "all"})
     assert "git clone --filter=blob:none --sparse --depth=50" in text and "/.source/" in text
-    assert "sparse-checkout set <docs_root>" in text
+    assert "sparse-checkout set --skip-checks '<docs_root>'" in text   # atproto's docs_root is `src/app/[locale]`
     assert 0 < text.index("--shallow-since") < text.index("--unshallow")
     assert "Never use the GitHub compare API" in text
     assert "is not handled by this instance yet" in text
 
 
 def test_update_sources_loops_over_sources_by_their_checkout_not_their_status():   # final review 1
-    """A source is `updated` only after `apply_source_update` (step 18), so Phase 3's loop cannot take "updated" as done."""
+    """A source is `updated` only after `apply_source_update` (step 14), so Phase 3's loop cannot take "updated" as done."""
     steps = {int(n): line for n, line in re.findall(r"(?m)^(\d+)\. (.*)$", (ROOT / "skills" / "update-sources" / "SKILL.md").read_text())}
     assert "checked out" in steps[11] and "updated" not in steps[11]
-    assert "checked out" in steps[16]
-    assert "checked out" in steps[17] and "updated" not in steps[17]
+    assert "checked out" in steps[12] and "is now checked out" in (ROOT / "fragments" / "sources" / "git.md").read_text()
+    assert "checked out" in steps[13] and "updated" not in steps[13]
 
 
 def test_a_node_that_fails_on_purpose_names_the_error_in_its_error_list():   # final review 2: `reason` is not a declared output
@@ -133,6 +134,85 @@ def test_a_node_that_fails_on_purpose_names_the_error_in_its_error_list():   # f
         for line in text.splitlines():
             if "EXIT `failed`" in line and not line.startswith("|"):
                 assert f"`{errors}`" in line, f"{node}: {line}"
+
+
+# --- checkout-sources, status, migrate, graph-validate -------------------------------------------------------------------
+
+def test_checkout_sources_declares_its_contract(instance):
+    node = instance.nodes["checkout-sources"]
+    assert set(node.inputs) == set() and set(node.outputs) == {"checkouts", "checkout_errors"}
+    assert node.outputs["checkouts"]["items"]["required"] == ["id", "status"]
+    assert node.outputs["checkouts"]["items"]["properties"]["status"]["enum"] == ["checked-out", "failed"]
+    assert node.exits == ("done", "failed") and node.context == "none"
+    assert node.allowed_tools == ("shell__run", "files__read_text_file", "reference")
+
+
+def test_status_declares_its_contract(instance):
+    node = instance.nodes["status"]
+    assert set(node.inputs) == set()
+    assert set(node.outputs) == {"sources", "index_format", "stale_count", "embeddings_lag", "refresh_needed", "status_errors"}
+    assert node.exits == ("current", "stale", "failed") and node.allowed_tools == ("corpus_status",) and node.context == "none"
+
+
+def test_migrate_declares_its_contract(instance):
+    node = instance.nodes["migrate"]
+    assert set(node.inputs) == set()
+    assert set(node.outputs) == {"migrated", "migrate_skipped", "strategy", "sections", "migrate_errors"}
+    assert node.exits == ("migrated", "failed") and node.allowed_tools == ("migrate_index",) and node.context == "none"
+
+
+def test_graph_validate_declares_its_contract(instance):
+    node = instance.nodes["graph-validate"]
+    assert set(node.inputs) == set() and set(node.outputs) == {"concepts", "relationships", "issues", "valid"}
+    assert node.exits == ("valid", "invalid", "failed") and node.allowed_tools == ("validate_graph",) and node.context == "none"
+
+
+async def test_update_sources_and_checkout_sources_include_the_git_fragment(corpus):
+    for node, inputs in (("update-sources", {"sources": "all"}), ("checkout-sources", {})):
+        text = await filled_procedure(corpus, node, inputs)
+        assert "git clone --filter=blob:none --sparse --depth=50" in text and "{{" not in text, node
+        assert "checkout -q -B <branch> <commit>" in text and "--unshallow" in text, node
+
+
+async def test_checkout_sources_checks_out_the_indexed_commit(corpus, run):
+    result = await run("checkout-sources", {})
+    assert result["outcome"] == "done" and result["outputs"]["checkouts"] == [{"id": "docs", "status": "checked-out"}]
+    assert corpus.git("-C", str(corpus.path / ".source" / "docs"), "rev-parse", "HEAD") == corpus.first_sha
+
+
+async def test_checkout_sources_checks_out_a_short_sha(corpus, run):                     # Review Focus 4: htmx's 749d5f2
+    corpus.set_last_sha(corpus.first_sha[:7])
+    assert (await run("checkout-sources", {}))["outcome"] == "done"
+    assert corpus.git("-C", str(corpus.path / ".source" / "docs"), "rev-parse", "HEAD") == corpus.first_sha
+
+
+async def test_status_exits_stale_with_the_outputs_the_tool_recorded(corpus, run):      # CJW-7
+    result = await run("status", {})
+    assert result["outcome"] == "stale"
+    outputs = result["outputs"]
+    assert outputs["refresh_needed"] is True and outputs["sources"] == [{"id": "docs", "type": "git", "freshness": "behind"}]
+    assert outputs["stale_count"] == 0 and outputs["index_format"] == "v2" and outputs["status_errors"] == []
+
+
+async def test_migrate_node_records_the_migration(corpus_v1_bullets, run):              # example 7e
+    result = await run("migrate", {})
+    assert result["outcome"] == "migrated"
+    assert result["outputs"] == {"migrated": 2, "migrate_skipped": [], "strategy": "single", "sections": []}
+
+
+async def test_migrate_node_reports_a_refusal(corpus_v1_bullets, run):                  # example 7
+    corpus_v1_bullets.write("sections/extra.md", "See `docs:c.md`.\n")
+    corpus_v1_bullets._save("test: an id the parser does not read")
+    result = await run("migrate", {}, case="migrate_lost")
+    assert result["outcome"] == "failed" and result["outputs"] == {"migrate_errors": ["ids lost in migration: docs:c.md"]}
+    assert corpus_v1_bullets.git("status", "--porcelain") == ""
+
+
+async def test_graph_validate_records_the_issues(corpus, run):
+    corpus.write("graph.yaml", (corpus.path / "graph.yaml").read_text().replace("concepts:\n", 'concepts:\n  lonely:\n    label: "Lonely"\n    description: "Named by no entry"\n'))
+    result = await run("graph-validate", {})
+    assert result["outcome"] == "valid" and result["outputs"]["valid"] is True
+    assert [(i["rule"], i["severity"]) for i in result["outputs"]["issues"]] == [("orphan-concept", "warning")]
 
 
 # --- index ------------------------------------------------------------------------------------------------------------

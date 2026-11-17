@@ -1,0 +1,14 @@
+[
+  [["shell__run", {"command": "timeout 120 git -C @CORPUS@ status --porcelain -- ."}]],
+  [["shell__run", {"command": "date +%Y-%m-%d"}]],
+  [["shell__run", {"command": "timeout 120 git -C @CORPUS@ for-each-ref --format='%(refname:short)' refs/heads refs/remotes/origin"}]],
+  [["shell__run", {"command": "timeout 120 git -C @CORPUS@ checkout -b automated/corpus-refresh-test-@TODAY@"}]],
+  [["shell__run", {"command": "timeout 120 git -C @CORPUS@ add -A -- ."}]],
+  [["shell__run", {"command": "timeout 120 git -C @CORPUS@ rev-parse --show-prefix"}]],
+  [["shell__run", {"command": "timeout 120 git -C @CORPUS@ diff --cached --name-only"}]],
+  [["stale_entries", {}]],
+  [["files__write_file", {"path": "@CLONE@/../message.md", "content": "corpus: migrate @TODAY@\n\n## Migration\n\n- Migrated: 2 entries (single)\n\n## Index\n\n- Skipped: 2\n  - docs:a.md: the test makes every scan fail\n  - docs:b.md: the test makes every scan fail\n"}]],
+  [["shell__run", {"command": "timeout 120 git -C @CORPUS@ commit -q -F @CLONE@/../message.md"}]],
+  [["shell__run", {"command": "timeout 120 git -C @CORPUS@ checkout main"}]],
+  [["exit", {"outcome": "committed", "outputs": {"branch": "automated/corpus-refresh-test-@TODAY@", "pr_url": null, "superseded_prs": []}}]]
+]

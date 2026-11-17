@@ -1,0 +1,4 @@
+[
+  [["migrate_index", {}]],
+  [["exit", {"outcome": "failed", "outputs": {"migrate_errors": ["ids lost in migration: docs:c.md"]}}]]
+]

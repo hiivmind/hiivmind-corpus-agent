@@ -7,7 +7,7 @@ time now, in UTC.
 from datetime import datetime, timezone
 from pathlib import Path
 
-from hiivmind_corpus import index, refresh, repo
+from hiivmind_corpus import graph, index, migrate, refresh, repo
 from hiivmind_corpus import reference as documents
 
 
@@ -18,6 +18,12 @@ def _corpus(settings) -> Path:
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _recorded(state, result: dict) -> dict:
+    """Write each value of `result` to the node's state, so the node's outputs are what the tool found (P17); `result`."""
+    state.update(result)
+    return result
 
 
 def prepare_base(settings) -> bool:
@@ -101,6 +107,46 @@ def embed(settings) -> dict:
 def embeddings_lag(settings) -> int | None:
     """How many entries were indexed after the embeddings were made; null without an embeddings table."""
     return refresh.embeddings_lag(_corpus(settings))
+
+
+def corpus_status(settings, state) -> dict:
+    """The corpus's status: sources (id, type, freshness), index_format, stale_count, embeddings_lag, refresh_needed (a source
+    behind or unknown, a stale entry, or embeddings that lag) and status_errors. Records each in the node's outputs. Fetches
+    nothing and changes nothing."""
+    return _recorded(state, refresh.status_report(_corpus(settings)))
+
+
+def index_is_v2(settings) -> bool:
+    """True when the corpus has index.yaml."""
+    return refresh.index_is_v2(_corpus(settings))
+
+
+def index_is_v1(settings) -> bool:
+    """True when the corpus has no index.yaml and has an index.md."""
+    return refresh.index_is_v1(_corpus(settings))
+
+
+def sources_handled(settings) -> bool:
+    """True when each source of config.yaml is of a kind this instance handles (git)."""
+    return refresh.sources_handled(_corpus(settings))
+
+
+def graph_exists(settings) -> bool:
+    """True when the corpus has graph.yaml."""
+    return graph.graph_exists(_corpus(settings))
+
+
+def migrate_index(settings, state) -> dict:
+    """Migrate the v1 index (index.md, index-*.md) to index.yaml, every entry stale, and render it. Records migrated,
+    migrate_skipped, strategy and sections in the node's outputs. A refusal is an error that says why; after a lost id or a
+    render failure every file is as it was."""
+    return _recorded(state, migrate.migrate_index(_corpus(settings), _now()))
+
+
+def validate_graph(settings, state) -> dict:
+    """Check graph.yaml against the graph rules. Records concepts, relationships, issues (severity, rule, detail) and valid
+    (no issue is an error) in the node's outputs."""
+    return _recorded(state, graph.validate_graph(_corpus(settings)))
 
 
 def reference(doc: str, section: str | None = None) -> str:

@@ -6,6 +6,10 @@ nodes:
   - {name: verify, path: skills/verify}
   - {name: embed, path: skills/embed}
   - {name: publish, path: skills/publish}
+  - {name: checkout-sources, path: skills/checkout-sources}
+  - {name: status, path: skills/status}
+  - {name: migrate, path: skills/migrate}
+  - {name: graph-validate, path: skills/graph-validate}
 exits:
   done: route
   declined: route
@@ -17,13 +21,16 @@ sequences:
     inputs: {sources: all}
     checks:
       - {tool: prepare_base, message: "The corpus repository could not be prepared."}
+      - {tool: index_is_v2, outcome: v1, message: "The corpus has a v1 index."}
       - {tool: corpus_ready, message: "The corpus has no config.yaml, no source, or no built v2 index."}
       - {tool: refresh_needed, outcome: current, message: "Already current."}
     transitions:
-      check: {current: end}
+      check: {current: end, v1: {link: migrate}}
       update-sources:
-        updated: {fan_out: scan, over: {tool: stale_batches}, as: batch, into: scans}
-        current: {fan_out: scan, over: {tool: stale_batches}, as: batch, into: scans}
+        # The scan fan-out, defined once here and reused by `enrich` and `migrate`. `max_concurrency` is how many scan runs
+        # go at once (the core's default is 4): the API key refused 3 of 4 at once with 429 "concurrent connections".
+        updated: &scan_batches {fan_out: scan, over: {tool: stale_batches}, as: batch, into: scans, max_concurrency: 2}
+        current: *scan_batches
         declined: end
         failed: end
         skipped: publish
@@ -33,3 +40,52 @@ sequences:
       verify: {done: embed, skipped: embed, failed: embed}
       embed: {done: publish, deferred: publish, skipped: publish, failed: publish}
       publish: {published: end, committed: end, nothing-to-publish: end, skipped: end, failed: end}
+
+  status:
+    description: Report one corpus's sources, stale entries and embedding lag.
+    start: status
+    transitions:
+      status: {current: end, stale: end, skipped: end, failed: end}
+
+  enrich:
+    description: Re-scan the stale entries of one corpus and open a pull request.
+    start: checkout-sources
+    checks:
+      - {tool: prepare_base, message: "The corpus repository could not be prepared."}
+      - {tool: index_is_v2, outcome: v1, message: "The corpus has a v1 index."}
+      - {tool: corpus_ready, message: "The corpus has no config.yaml, no source, or no built v2 index."}
+      - {tool: stale_entries, outcome: nothing-stale, message: "Nothing is stale."}
+    transitions:
+      check: {v1: {link: migrate}, nothing-stale: end}
+      checkout-sources: {done: *scan_batches, skipped: end, failed: end}
+      scan: {done: index, failed: index}
+      index: {done: concepts, skipped: concepts, failed: publish}
+      concepts: {done: verify, skipped: verify, failed: verify}
+      verify: {done: embed, skipped: embed, failed: embed}
+      embed: {done: publish, deferred: publish, skipped: publish, failed: publish}
+      publish: {published: end, committed: end, nothing-to-publish: end, skipped: end, failed: end}
+
+  migrate:
+    description: Convert a v1 corpus to v2, scan every entry, and open a pull request.
+    start: checkout-sources
+    checks:
+      - {tool: prepare_base, message: "The corpus repository could not be prepared."}
+      - {tool: index_is_v1, message: "The corpus has no v1 index to migrate."}
+      - {tool: sources_handled, message: "The corpus has sources this instance does not handle."}
+    transitions:
+      checkout-sources: {done: migrate, skipped: end, failed: end}
+      migrate: {migrated: *scan_batches, skipped: end, failed: end}
+      scan: {done: index, failed: index}
+      index: {done: concepts, skipped: concepts, failed: publish}
+      concepts: {done: verify, skipped: verify, failed: verify}
+      verify: {done: embed, skipped: embed, failed: embed}
+      embed: {done: publish, deferred: publish, skipped: publish, failed: publish}
+      publish: {published: end, committed: end, nothing-to-publish: end, skipped: end, failed: end}
+
+  graph-validate:
+    description: Check one corpus's graph.yaml against its rules.
+    start: graph-validate
+    checks:
+      - {tool: graph_exists, message: "The corpus has no graph.yaml."}
+    transitions:
+      graph-validate: {valid: end, invalid: end, skipped: end, failed: end}

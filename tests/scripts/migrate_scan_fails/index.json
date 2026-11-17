@@ -1,0 +1,4 @@
+[
+  [["merge_scans", {}]],
+  [["exit", {"outcome": "done", "outputs": {"enriched_ids": [], "skipped_entries": [{"id": "docs:a.md", "reason": "the test makes every scan fail"}, {"id": "docs:b.md", "reason": "the test makes every scan fail"}], "index_errors": []}}]]
+]

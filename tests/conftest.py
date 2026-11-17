@@ -66,6 +66,27 @@ def corpus_second(monkeypatch, _current, tmp_path):
 
 
 @pytest.fixture
+def corpus_v1_bullets(monkeypatch, _current, tmp_path):
+    """A v1 corpus whose `index.md` lists `a.md` and `b.md` as bullets; `.source/docs/` checked out at `first_sha`. One test
+    uses one corpus fixture."""
+    return _make(monkeypatch, _current, tmp_path, checkout=True, v1="bullets")
+
+
+@pytest.fixture
+def corpus_v1_tiered(monkeypatch, _current, tmp_path):
+    """A tiered v1 corpus: `index.md` with a Quick Reference listing `a.md`, and `index-guide.md` with `a.md` and `b.md`;
+    `.source/docs/` checked out at `first_sha`. One test uses one corpus fixture."""
+    return _make(monkeypatch, _current, tmp_path, checkout=True, v1="tiered")
+
+
+@pytest.fixture
+def corpus_v1_table(monkeypatch, _current, tmp_path):
+    """A v1 corpus whose `index.md` lists `a.md` and `b.md` in a table; `.source/docs/` checked out at `first_sha`. One test
+    uses one corpus fixture."""
+    return _make(monkeypatch, _current, tmp_path, checkout=True, v1="table")
+
+
+@pytest.fixture
 def today() -> str:
     """Today's date as the branch names write it."""
     return date.today().isoformat()
@@ -99,14 +120,14 @@ def run(_current):
 
 @pytest.fixture
 def job(_current):
-    """`job(case="ok", resume=None)`: the refresh sequence in a subprocess; `(exit code, standard output, run record or None)`.
-    Every run of a test keeps its directory beside the others, so one journal holds them all and `resume` (a run id) finds
-    the run it names."""
-    def job(case: str = "ok", resume: str | None = None):
+    """`job(case="ok", resume=None, *, sequence="refresh")`: the sequence in a subprocess; `(exit code, standard output, run
+    record or None)`. Every run of a test keeps its directory beside the others, so one journal holds them all and `resume`
+    (a run id) finds the run it names."""
+    def job(case: str = "ok", resume: str | None = None, *, sequence: str = "refresh"):
         corpus: Corpus = _current["corpus"]
         run_dir = corpus.next_dir("run")
         command = [
-            sys.executable, "-m", "agent_core.core.cli", "job", str(INSTANCE_YAML), "refresh",
+            sys.executable, "-m", "agent_core.core.cli", "job", str(INSTANCE_YAML), sequence,
             "--settings", str(corpus.settings_file), "--backend", "scripted", "--run-dir", str(run_dir),
         ]
         if resume:

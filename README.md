@@ -46,8 +46,9 @@ What the `refresh` sequence does, in order (`topology.yaml`, `sequences.refresh`
 
 1. **Checks, with no model call.**
    1. `prepare_base`: stops when the working tree is dirty or when `BASE_BRANCH` has commits that `origin/BASE_BRANCH` does not; checks out `BASE_BRANCH`, fetches `origin` and fast-forwards. A problem fails the run before any node, with its reason (exit 1).
-   2. `corpus_ready`: `config.yaml` has a source, `index.yaml` exists and `index.md` is not the build's placeholder. A v1 index fails here (exit 1) until `migrate` is ported.
-   3. `refresh_needed`: when every source is current, no entry is stale and the embeddings do not lag, the run ends `Already current.` (exit 0) and has made no model call and no branch. A source whose freshness is unknown, or a status that cannot be read, counts as needing a refresh.
+   2. `index_is_v2`: a corpus with no `index.yaml` (a v1 corpus) goes on to the `migrate` sequence, below, instead of refreshing.
+   3. `corpus_ready`: `config.yaml` has a source, `index.yaml` exists and `index.md` is not the build's placeholder.
+   4. `refresh_needed`: when every source is current, no entry is stale and the embeddings do not lag, the run ends `Already current.` (exit 0) and has made no model call and no branch. A source whose freshness is unknown, or a status that cannot be read, counts as needing a refresh.
 2. **`update-sources`**: updates each source that is behind, marks the entries of changed files stale, adds and removes entries, records the new commits, drops the entries whose files git says are gone, and renders `index.md`. A failure here ends the run (exit 1) with nothing changed.
 3. **`scan`**, a fan-out over the stale files of the index (entries left stale by an earlier run too), in batches of at most 30 files; each run writes the metadata of its files and changes nothing.
 4. **`index`**: merges the scans into `index.yaml`; an entry whose batch failed, or whose file no scan returned, is skipped with the reason and stays stale.
@@ -62,9 +63,18 @@ No node edits `index.yaml`, `config.yaml` or `graph.yaml` by text: every change 
 
 The run is recorded in `runs/refresh-<UTC start>-<six hex digits>/record.json` (`--run-dir` chooses another directory; `runs/` is not committed): the steps and their outcomes, the facts every node gave, the summary (`publish`'s outputs: `branch`, `pr_url`, `superseded_prs`), the failed node runs with their reasons, and the model calls and tokens of each node run. A node that fails through the harness (no exit, an invalid output) leaves no outputs: its reason is in the record's `failures`, not in the pull request. The exit code is 0 when the sequence ends `done` or `stopped`, 1 when it ends `failed` (a check, `update-sources` or `publish` failed), 2 when the run could not start. `--resume <run id>` continues a run that crashed, from the steps that finished.
 
+## The other sequences
+
+Each runs the same way, `uv run agent-core job instance.yaml <sequence> --settings config/<corpus>.yaml`, and is recorded in `runs/<sequence>-…/`:
+
+- **`status`**: one node, `status`, reports each source's freshness, the index format, the stale entries, the embeddings' lag and `refresh_needed` in the record's facts, and ends `current` or `stale` (exit 0 either way). It fetches nothing and changes nothing.
+- **`enrich`**: the refresh without `update-sources`. Its checks are `prepare_base`, `index_is_v2` (a v1 corpus goes on to `migrate`), `corpus_ready` and `stale_entries` (with nothing stale the run ends `Nothing is stale.`, exit 0, no model call). `checkout-sources` then checks out each git source at the commit the index was built at, and the scans, `index`, `concepts`, `verify`, `embed` and `publish` follow; the pull request is titled `corpus: enrich <date>`.
+- **`migrate`**: converts a v1 corpus (`index.md`, `index-*.md`) to `index.yaml`. Its checks refuse a corpus that has no v1 index or has a source of a kind other than git (exit 1, no model call). `checkout-sources` checks out each source at its `last_commit_sha`; one that cannot be checked out ends the run (exit 1) with nothing written. `migrate` writes every entry stale with its v1 title and summary, copies the package's `render-index.sh` into the corpus and renders; an id of the original `.md` files that is neither rendered nor skipped, or a render that fails, puts every file back and ends the run (exit 1). The scans then write each entry's metadata, and `publish` opens the pull request on the corpus's own repository, titled `corpus: migrate <date>`. A v1 corpus is its own repository: its settings file has `CORPUS_PATH` at that repository's root, its own `CORPUS_REPO`, and `BRANCH_PREFIX: automated/corpus-refresh-<name>`.
+- **`graph-validate`**: checks `graph.yaml` against the graph rules (errors: the schema, a concept an entry names that the graph lacks, a relationship whose end is not a concept; warnings: a concept no entry names, a relationship type or origin outside the vocabulary of `graph.md`). It ends `valid` or `invalid` (exit 0 either way), with the issues in the record's facts; a corpus with no `graph.yaml` fails the check (exit 1).
+
 ## Add a corpus
 
-Write one settings file, `config/<corpus>.yaml`, with `CORPUS_PATH`, `CORPUS_REPO` and `BRANCH_PREFIX`; nothing else changes. The corpus must have a v2 `index.yaml`, a `config.yaml` with its sources, and its own `render-index.sh`, as the corpora of `hiivmind-corpus-data` do. The same seven node files serve every corpus: nothing in them names one.
+Write one settings file, `config/<corpus>.yaml`, with `CORPUS_PATH`, `CORPUS_REPO` and `BRANCH_PREFIX`; nothing else changes. The corpus must have a `config.yaml` with its sources, and either a v2 `index.yaml` with its own `render-index.sh`, as the corpora of `hiivmind-corpus-data` do, or a v1 index, which `migrate` converts. The same node files serve every corpus: nothing in them names one.
 
 ## Add a source kind
 
@@ -225,6 +235,27 @@ What the model wrote wrong, in the facts of `update-sources` and so in the pull 
 - `update_errors` holds `excluded-by-config: none`, though nothing was excluded.
 
 The owner accepted this (2026-11-17): real runs use `claude-sonnet-5-5`, the default when `AGENT_CORE_LANGGRAPH_MODEL` is not set, which copied the same figures correctly in step 4.
+
+### Step 1d: `status` on Polars, `claude-sonnet-5-5`
+
+2026-11-17, run `status-20261117T043727Z-f6b450`, on the owner's working clone (`config/polars.yaml`; `status` reads and changes nothing, and the clone's six changed files were the same after the run). The sequence ended `done` (exit 0) with 2 model calls. Step: `status` → `stale`. Facts: source `polars` `behind`, `index_format` `v2`, `stale_count` 36, `embeddings_lag` null (no embeddings table), `refresh_needed` true, `status_errors` none.
+
+### Step 1d: `migrate` on better-auth, pushing, `claude-sonnet-5-5`
+
+2026-11-17, on a fresh clone of `hiivmind/hiivmind-corpus-better-auth` in `~/agent-core-scratch/`, with `--param CORPUS_PATH=$HOME/agent-core-scratch/hiivmind-corpus-better-auth --param PUSH=true`.
+
+1. **Run `migrate-20261117T043835Z-391175`** ended `failed` at `checkout-sources` (exit 1), with nothing written: `git clone failed: Remote branch canary not found in upstream origin`. The corpus tracked `canary`, which `better-auth/better-auth` no longer has; the indexed commit `a9e5301` is an ancestor of its `main`. With the owner's go-ahead, `config.yaml`'s `branch` was set to `main` and pushed to the corpus's `main` (`f0070d3`; the push bypassed the repository's "changes through a pull request" rule).
+2. **Run `migrate-20261117T044746Z-fe5d98`** ended `done` (exit 0) in about 6 minutes, 44 model calls, and opened https://github.com/hiivmind/hiivmind-corpus-better-auth/pull/1 (branch `automated/corpus-refresh-better-auth-2026-11-17`, titled `corpus: migrate 2026-11-17`). Steps: checks met, `checkout-sources` done, `migrate` migrated (148 entries, tiered, sections `authentication`, `plugins`, `integrations`, `concepts`, `reference`; none skipped), `scan[list]`, `scan[1]` done, `scan[2]` to `scan[5]` failed, then `index`, `concepts`, `verify` (10 sampled, none failed), `embed` (skipped: no embeddings) and `publish` published.
+
+   Of the five scan batches, one wrote its 30 entries. Three failed on the provider's rate limit (`429`, "Number of concurrent connections has exceeded your rate limit"), as the fan-out runs its batches at the same time; one ended `invalid_output` (`entries` missing after the one correction). The 118 entries of those batches are in the pull request as the migration wrote them: their v1 titles and summaries, `category: unknown`, and stale (CJW-8). The pull request was merged on the owner's instruction (`418082a`), so the next `enrich` on better-auth scans them again.
+
+### Step 1d: `migrate` on atproto, pushing, `claude-sonnet-5-5`
+
+2026-11-17, on a fresh clone of `hiivmind/hiivmind-corpus-atproto` in `~/agent-core-scratch/`, with `--param CORPUS_PATH=… --param PUSH=true`.
+
+1. **Run `migrate-20261117T081852Z-eb466f`** ended `failed` at `checkout-sources` (exit 1), with nothing written. The source's `docs_root` is `src/app/[locale]`, and `git sparse-checkout set` refuses a directory with `[` in its name ("specify directories rather than patterns"). The git fragment now runs `git sparse-checkout set --skip-checks '<docs_root>'` (`10f2382`). `update-sources` uses the same fragment, so a refresh of atproto would have failed the same way.
+2. **Run `migrate-20261117T082248Z-ca1213`** ended `done` (exit 0) in about 4 minutes, 42 model calls, and opened https://github.com/hiivmind/hiivmind-corpus-atproto/pull/3. `migrate` migrated 129 entries (single, none skipped). Of the five scan batches, `scan[2]` and `scan[5]` wrote 39 entries. `scan[1]`, `scan[3]` and `scan[4]`, three of the four that started together, failed on the provider's `429` "Number of concurrent connections has exceeded your rate limit", as in the better-auth run; `scan[5]` started after them and succeeded. The 90 entries of those batches are in the pull request stale, with their v1 titles and summaries.
+3. **Run `migrate-20261117T084916Z-eb8373`**, after the core gained its retries (`hiivmind-agent-core` branch `provider-retries`: the model client retries up to 8 times, and a fan-out runs a batch the provider refused once more) and with `max_concurrency: 2`. It used a fresh clone and `PUSH=false`. It ended `done` (exit 0) in about 8 minutes, with 57 model calls. All five scan batches ended `done`, and all 129 entries were scanned; none is stale. No batch needed a second run. Whether the client retried a refusal is not recorded. The commit is on the local branch `automated/corpus-refresh-atproto-2026-11-17-2` of that clone; nothing was pushed.
 
 ### Not yet run
 

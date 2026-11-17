@@ -1,0 +1,4 @@
+[
+  [["migrate_index", {}]],
+  [["exit", {"outcome": "migrated"}]]
+]

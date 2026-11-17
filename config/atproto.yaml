@@ -1,0 +1,3 @@
+CORPUS_PATH: /home/nathanielramm/git/hiivmind/hiivmind-corpus-atproto
+CORPUS_REPO: hiivmind/hiivmind-corpus-atproto
+BRANCH_PREFIX: automated/corpus-refresh-atproto
