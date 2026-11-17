@@ -27,8 +27,10 @@ sequences:
     transitions:
       check: {current: end, v1: {link: migrate}}
       update-sources:
-        updated: {fan_out: scan, over: {tool: stale_batches}, as: batch, into: scans}
-        current: {fan_out: scan, over: {tool: stale_batches}, as: batch, into: scans}
+        # The scan fan-out, defined once here and reused by `enrich` and `migrate`. `max_concurrency` is how many scan runs
+        # go at once (the core's default is 4): the API key refused 3 of 4 at once with 429 "concurrent connections".
+        updated: &scan_batches {fan_out: scan, over: {tool: stale_batches}, as: batch, into: scans, max_concurrency: 2}
+        current: *scan_batches
         declined: end
         failed: end
         skipped: publish
@@ -55,7 +57,7 @@ sequences:
       - {tool: stale_entries, outcome: nothing-stale, message: "Nothing is stale."}
     transitions:
       check: {v1: {link: migrate}, nothing-stale: end}
-      checkout-sources: {done: {fan_out: scan, over: {tool: stale_batches}, as: batch, into: scans}, skipped: end, failed: end}
+      checkout-sources: {done: *scan_batches, skipped: end, failed: end}
       scan: {done: index, failed: index}
       index: {done: concepts, skipped: concepts, failed: publish}
       concepts: {done: verify, skipped: verify, failed: verify}
@@ -72,7 +74,7 @@ sequences:
       - {tool: sources_handled, message: "The corpus has sources this instance does not handle."}
     transitions:
       checkout-sources: {done: migrate, skipped: end, failed: end}
-      migrate: {migrated: {fan_out: scan, over: {tool: stale_batches}, as: batch, into: scans}, skipped: end, failed: end}
+      migrate: {migrated: *scan_batches, skipped: end, failed: end}
       scan: {done: index, failed: index}
       index: {done: concepts, skipped: concepts, failed: publish}
       concepts: {done: verify, skipped: verify, failed: verify}
