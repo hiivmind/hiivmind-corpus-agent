@@ -29,6 +29,7 @@ dependencies = [
 
 [package.optional-dependencies]
 langgraph = [
+    { name = "anthropic" },
     { name = "langchain" },
     { name = "langchain-anthropic" },
     { name = "langgraph" },
@@ -36,6 +37,7 @@ langgraph = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anthropic", marker = "extra == 'langgraph'", specifier = ">=2.8,<3" },
     { name = "dbos", specifier = ">=3.5,<4" },
     { name = "jsonschema" },
     { name = "langchain", marker = "extra == 'langgraph'", specifier = ">=1.5,<2" },
