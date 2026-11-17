@@ -249,6 +249,13 @@ The owner accepted this (2026-11-17): real runs use `claude-sonnet-5-5`, the def
 
    Of the five scan batches, one wrote its 30 entries. Three failed on the provider's rate limit (`429`, "Number of concurrent connections has exceeded your rate limit"), as the fan-out runs its batches at the same time; one ended `invalid_output` (`entries` missing after the one correction). The 118 entries of those batches are in the pull request as the migration wrote them: their v1 titles and summaries, `category: unknown`, and stale (CJW-8). The pull request was merged on the owner's instruction (`418082a`), so the next `enrich` on better-auth scans them again.
 
+### Step 1d: `migrate` on atproto, pushing, `claude-sonnet-5-5`
+
+2026-11-17, on a fresh clone of `hiivmind/hiivmind-corpus-atproto` in `~/agent-core-scratch/`, with `--param CORPUS_PATH=… --param PUSH=true`.
+
+1. **Run `migrate-20261117T081852Z-eb466f`** ended `failed` at `checkout-sources` (exit 1), with nothing written. The source's `docs_root` is `src/app/[locale]`, and `git sparse-checkout set` refuses a directory with `[` in its name ("specify directories rather than patterns"). The git fragment now runs `git sparse-checkout set --skip-checks '<docs_root>'` (`10f2382`). `update-sources` uses the same fragment, so a refresh of atproto would have failed the same way.
+2. **Run `migrate-20261117T082248Z-ca1213`** ended `done` (exit 0) in about 4 minutes, 42 model calls, and opened https://github.com/hiivmind/hiivmind-corpus-atproto/pull/3. `migrate` migrated 129 entries (single, none skipped). Of the five scan batches, `scan[2]` and `scan[5]` wrote 39 entries. `scan[1]`, `scan[3]` and `scan[4]`, three of the four that started together, failed on the provider's `429` "Number of concurrent connections has exceeded your rate limit", as in the better-auth run; `scan[5]` started after them and succeeded. The 90 entries of those batches are in the pull request stale, with their v1 titles and summaries.
+
 ### Not yet run
 
 Step 5 (criterion 1 on a real corpus: exit 0, `already current`, no model call) is not run: `detect.py` prints `no-model`, so the embeddings lag stays above 0. It runs on a corpus whose embeddings are ready (`detect.py` prints `ready`) or on one with no `index-embeddings.lance/`; the result will say which.
