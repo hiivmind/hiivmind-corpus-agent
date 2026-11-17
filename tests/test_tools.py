@@ -3,6 +3,7 @@
 
 from types import SimpleNamespace
 
+from agent_core.core.state import StateView
 from agent_core.tools.function import FunctionSource
 
 from tests.helpers import ROOT
@@ -12,6 +13,8 @@ SHOWN = {   # each tool and the arguments the model gives it
     "apply_source_update": ["source", "old_sha", "new_sha"], "drop_missing": ["sources"], "merge_scans": [],
     "set_concepts": ["assignments"], "set_summary": ["entry_id", "summary"], "stale_entries": [],
     "verify_previews": ["entry_ids"], "embeddings_status": [], "embed": [], "embeddings_lag": [], "reference": ["doc", "section"],
+    "corpus_status": [], "index_is_v2": [], "index_is_v1": [], "sources_handled": [], "graph_exists": [], "migrate_index": [],
+    "validate_graph": [],
 }
 
 
@@ -57,3 +60,19 @@ async def test_a_relative_corpus_path_is_the_corpus_under_the_working_directory(
     settings = SimpleNamespace(**{**vars(corpus_stale.settings), "CORPUS_PATH": corpus_stale.path.name})
     [preview] = await tools(instance, settings).call("verify_previews", {"entry_ids": ["docs:a.md"]}, {})
     assert preview["entry_id"] == "docs:a.md" and preview["content_preview"]
+
+
+async def test_the_tools_behind_node_outputs_write_them_to_state(instance, corpus_v1_bullets):   # CJW-7
+    source = tools(instance, corpus_v1_bullets.settings)
+    outputs = {
+        "migrate_index": {"migrated", "migrate_skipped", "strategy", "sections"},
+        "corpus_status": {"sources", "index_format", "stale_count", "embeddings_lag", "refresh_needed", "status_errors"},
+        "validate_graph": {"concepts", "relationships", "issues", "valid"},
+    }
+    for name, written in outputs.items():
+        if name == "validate_graph":
+            corpus_v1_bullets.write("graph.yaml", "schema_version: 2\nconcepts: {}\n")
+        state = StateView()
+        result = await source.call(name, {}, state)
+        assert state.written == written and {key: state[key] for key in written} == result, name
+    assert state["valid"] is False   # the graph has no `meta`

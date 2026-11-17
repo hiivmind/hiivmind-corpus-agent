@@ -27,3 +27,10 @@ tools:
   embed: tools.corpus:embed
   embeddings_lag: tools.corpus:embeddings_lag
   reference: tools.corpus:reference
+  corpus_status: tools.corpus:corpus_status
+  index_is_v2: tools.corpus:index_is_v2
+  index_is_v1: tools.corpus:index_is_v1
+  sources_handled: tools.corpus:sources_handled
+  graph_exists: tools.corpus:graph_exists
+  migrate_index: tools.corpus:migrate_index
+  validate_graph: tools.corpus:validate_graph
