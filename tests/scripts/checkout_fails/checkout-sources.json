@@ -1,0 +1,5 @@
+[
+  [["files__read_text_file", {"path": "@CORPUS@/config.yaml"}]],
+  [["shell__run", {"command": "git -C @CORPUS@/.source/docs cat-file -e @OLD_SHA@^{commit}"}]],
+  [["exit", {"outcome": "failed", "outputs": {"checkouts": [{"id": "docs", "status": "failed", "error": "commit @OLD_SHA7@ cannot be resolved, even with the full history"}], "checkout_errors": ["docs: commit @OLD_SHA7@ cannot be resolved, even with the full history"]}}]]
+]

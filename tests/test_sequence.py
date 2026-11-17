@@ -47,14 +47,6 @@ def test_a_dirty_tree_fails_before_any_node(corpus, job):            # example 4
     assert record["end_state"] == "failed" and names(record) == ["checks"] and record["model_calls"] == 0
 
 
-def test_a_v1_index_is_not_ready(corpus, job):                       # example 6
-    (corpus.path / "index.yaml").unlink()
-    corpus._save("test: a v1 corpus")
-    code, out, record = job()
-    assert code == 1 and "The corpus has no config.yaml, no source, or no built v2 index." in out
-    assert record["end_state"] == "failed" and record["model_calls"] == 0
-
-
 def test_a_failed_verify_still_publishes(corpus, job):
     code, out, record = job("verify_fails")
     assert code == 0, out
@@ -132,3 +124,121 @@ def test_a_failed_index_reaches_publish_with_its_error(corpus, job):            
     assert code == 0, out
     assert outcomes(record)["index"] == "failed" and outcomes(record)["publish"] == "committed" and "concepts" not in names(record)
     assert record["facts"]["index_errors"] == ["merge_scans failed: the test makes the merge fail"]
+
+
+# --- the job workflows: status, enrich, migrate, graph-validate (design §4.2) ----------------------------------------------
+
+MIGRATE_WALK = ["checks", "checkout-sources", "migrate", "scan[list]", "scan[1]", "scan", "index", "concepts", "verify", "embed", "publish"]
+
+
+def committed_entries(corpus, record: dict) -> dict[str, dict]:
+    text = corpus.git("show", f"{record['facts']['branch']}:hiivmind-corpus-test/index.yaml")
+    return {e["id"]: e for e in yaml.safe_load(text)["entries"]}
+
+
+def subject(corpus, record: dict) -> str:
+    return corpus.git("log", "-1", "--format=%s", record["facts"]["branch"])
+
+
+def test_status_on_a_stale_corpus(corpus, job):                      # example 1
+    code, out, record = job(sequence="status")
+    assert code == 0, out
+    assert names(record) == ["status"] and outcomes(record)["status"] == "stale" and record["end_state"] == "done"
+    assert record["facts"]["refresh_needed"] is True and record["facts"]["sources"][0]["freshness"] == "behind"
+
+
+def test_enrich_with_nothing_stale_makes_no_model_call(corpus, job):  # example 2
+    code, out, record = job(sequence="enrich")
+    assert code == 0 and "Nothing is stale." in out
+    assert names(record) == ["checks"] and outcomes(record)["checks"] == "nothing-stale" and record["model_calls"] == 0
+
+
+def test_enrich_walks_from_checkout_to_publish(corpus_stale, job, today):   # example 3
+    code, out, record = job("enrich_ok", sequence="enrich")
+    assert code == 0, out
+    assert names(record) == ["checks", "checkout-sources", "scan[list]", "scan[1]", "scan", "index", "concepts", "verify", "embed", "publish"]
+    assert subject(corpus_stale, record) == f"corpus: enrich {today}"
+    entries = committed_entries(corpus_stale, record)
+    assert entries["docs:b.md"]["stale"] is False and entries["docs:b.md"]["summary"] == "The file b.md, scanned for enrich."
+
+
+def test_migrate_walks_and_publishes_a_migration(corpus_v1_bullets, job, today):   # example 4, CJW-1, CJW-3, CJW-11
+    code, out, record = job("migrate_ok", sequence="migrate")
+    assert code == 0, out
+    assert names(record) == MIGRATE_WALK and outcomes(record)["publish"] == "committed"
+    entries = committed_entries(corpus_v1_bullets, record)
+    assert set(entries) == {"docs:a.md", "docs:b.md"} and not [id for id, e in entries.items() if e["stale"]]
+    assert entries["docs:b.md"]["summary"] == "The file b.md, scanned after the migration."
+    assert record["facts"]["migrated"] == 2 and record["facts"]["strategy"] == "single"   # recorded by the tool (example 7e)
+    assert subject(corpus_v1_bullets, record) == f"corpus: migrate {today}"
+
+
+def test_refresh_on_a_v1_corpus_links_to_migrate(corpus_v1_bullets, job, today):     # example 5, CJW-2
+    code, out, record = job("migrate_ok")
+    assert code == 0, out
+    assert record["steps"][0] == {**record["steps"][0], "name": "checks", "outcome": "v1"} and "migrate" in names(record)
+    assert "update-sources" not in names(record) and subject(corpus_v1_bullets, record) == f"corpus: migrate {today}"
+
+
+def test_enrich_on_a_v1_corpus_links_to_migrate(corpus_v1_bullets, job, today):      # CJW-2a
+    code, out, record = job("migrate_ok", sequence="enrich")
+    assert code == 0, out
+    assert record["steps"][0]["outcome"] == "v1" and "migrate" in names(record) and "checkout-sources" in names(record)
+    assert subject(corpus_v1_bullets, record) == f"corpus: migrate {today}"
+
+
+def test_a_failed_scan_after_migration_keeps_the_v1_entry_and_enrich_picks_it_up(corpus_v1_bullets, job, today):   # 7d, CJW-8
+    code, out, record = job("migrate_scan_fails", sequence="migrate")
+    assert code == 0, out
+    assert outcomes(record)["scan"] == "failed" and outcomes(record)["publish"] == "committed"
+    entries = committed_entries(corpus_v1_bullets, record)
+    assert {id: (e["title"], e["summary"], e["stale"]) for id, e in entries.items()} == {
+        "docs:a.md": ("Alpha", "The file a.md, in v1.", True), "docs:b.md": ("Beta", "The file b.md, in v1.", True),
+    }
+    message = corpus_v1_bullets.git("log", "-1", "--format=%B", record["facts"]["branch"])
+    assert "- docs:b.md: the test makes every scan fail" in message
+    corpus_v1_bullets.git("push", "-q", "origin", f"{record['facts']['branch']}:main")   # the pull request, merged
+    corpus_v1_bullets.git("branch", "-D", record["facts"]["branch"])                      # and its branch deleted
+    code, out, record = job("enrich_ok", sequence="enrich")
+    assert code == 0, out
+    assert "scan[1]" in names(record) and not [id for id, e in committed_entries(corpus_v1_bullets, record).items() if e["stale"]]
+
+
+def test_migrate_refuses_a_corpus_with_a_web_source(corpus_v1_bullets, job):        # example 6, CJW-6
+    corpus_v1_bullets.add_source({"id": "site", "type": "web"})
+    code, out, record = job(sequence="migrate")
+    assert code == 1 and "The corpus has sources this instance does not handle." in out
+    assert names(record) == ["checks"] and record["model_calls"] == 0
+
+
+def test_migrate_that_would_lose_ids_ends_failed_and_writes_nothing(corpus_v1_bullets, job):   # example 7, CJW-4
+    corpus_v1_bullets.write("sections/extra.md", "See `docs:c.md`.\n")
+    corpus_v1_bullets._save("test: an id the parser does not read")
+    code, out, record = job("migrate_lost", sequence="migrate")
+    assert code == 1, out
+    assert names(record)[-1] == "migrate" and outcomes(record)["migrate"] == "failed" and record["end_state"] == "failed"
+    assert record["facts"]["migrate_errors"] == ["ids lost in migration: docs:c.md"]
+    assert corpus_v1_bullets.git("status", "--porcelain") == "" and not (corpus_v1_bullets.path / "index.yaml").exists()
+
+
+def test_a_source_that_cannot_be_checked_out_ends_the_run(corpus_v1_bullets, job):  # example 7a, CJW-12
+    code, out, record = job("checkout_fails", sequence="migrate")
+    assert code == 1, out
+    assert names(record) == ["checks", "checkout-sources"] and record["end_state"] == "failed"
+    assert "cannot be resolved" in record["facts"]["checkout_errors"][0]
+    assert corpus_v1_bullets.git("status", "--porcelain") == "" and not (corpus_v1_bullets.path / "index.yaml").exists()
+
+
+def test_graph_validate_on_a_valid_graph(corpus, job):                # example 8
+    code, out, record = job(sequence="graph-validate")
+    assert code == 0, out
+    assert names(record) == ["checks", "graph-validate"] and outcomes(record)["graph-validate"] == "valid"
+    assert record["facts"]["valid"] is True and record["facts"]["issues"] == []
+
+
+def test_graph_validate_without_a_graph_fails(corpus, job):           # example 9, CJW-13
+    (corpus.path / "graph.yaml").unlink()
+    corpus._save("test: no graph")
+    code, out, record = job(sequence="graph-validate")
+    assert code == 1 and "The corpus has no graph.yaml." in out
+    assert record["end_state"] == "failed" and record["model_calls"] == 0
