@@ -18,6 +18,9 @@ inputs:
   concept_errors: the problems of concepts
   verify_errors: the problems of verify
   embed_errors: the problems of embed
+  migrated: how many entries the migration wrote
+  migrate_skipped: the v1 entries the migration skipped, each with its reason
+  strategy: how the migrated index is rendered, single or tiered
 outputs:
   branch: {type: [string, "null"]}
   pr_url: {type: [string, "null"]}
@@ -28,7 +31,7 @@ context: none
 ---
 # Publish
 
-Publishes what the refresh changed in the corpus: a commit on a new branch made from the working changes and, when pushing is on, a pull request. It commits only the corpus directory. Whatever happens, the working tree goes back to the base branch at the end, except after a failure.
+Publishes what the run changed in the corpus: a commit on a new branch made from the working changes and, when pushing is on, a pull request. It commits only the corpus directory. Whatever happens, the working tree goes back to the base branch at the end, except after a failure.
 
 Corpus: {{settings.CORPUS_PATH}}.
 Repository on GitHub: {{settings.CORPUS_REPO}}.
@@ -52,6 +55,8 @@ What the nodes before this one reported (each reads "not given" when that node d
 - Errors of concepts: {{input.concept_errors}}
 - Errors of verify: {{input.verify_errors}}
 - Errors of embed: {{input.embed_errors}}
+- Migrated: {{input.migrated}}, rendered {{input.strategy}}
+- Skipped in the migration: {{input.migrate_skipped}}
 
 Every `git` and `gh` command below is run with `timeout 120` before it, as written; each `git` command runs in the corpus directory, by `-C {{settings.CORPUS_PATH}}`. A shell command's result has an exit code. A command went well when its exit code is 0; "the command fails" below means its exit code is not 0. When a command fails and the step says nothing else, EXIT `failed` with output `reason` set to the command and what it printed.
 
@@ -73,7 +78,8 @@ Outputs: `branch`.
 9. CALL `shell__run` with the command `timeout 120 git -C {{settings.CORPUS_PATH}} add -A -- .`, which stages the corpus directory only.
 10. CALL `shell__run` with the command `timeout 120 git -C {{settings.CORPUS_PATH}} rev-parse --show-prefix`; it prints the corpus directory relative to the repository's root (nothing when the corpus is the root). Then CALL `shell__run` with the command `timeout 120 git -C {{settings.CORPUS_PATH}} diff --cached --name-only`. If a path it prints does not start with that prefix, EXIT `failed` with output `reason` set to "staged outside {{settings.CORPUS_PATH}}, nothing was committed: <the paths>".
 11. CALL `stale_entries`: the ids still stale, for "Needs attention".
-12. Write the message. Its first line, the title, is `corpus: refresh <today>`; then an empty line; then the body, in Markdown, in these sections, each list showing at most 50 items and then a line `- and <n> more`:
+12. Write the message. Its first line is the title, which names the work from what the nodes reported, the first rule that holds: `corpus: migrate <today>` when Migrated is given (it does not read "not given"); `corpus: refresh <today>` when Sources is given; otherwise `corpus: enrich <today>`. Then an empty line; then the body, in Markdown, in these sections, each list showing at most 50 items and then a line `- and <n> more`:
+    - `## Migration`, only when Migrated is given: `- Migrated: <migrated> entries (<strategy>)`, then `- Skipped: <n>` with each entry skipped in the migration and its reason.
     - `## Sources`: one line for each source, `- <Updated|Current|Failed|Skipped as manual>: `<id>` (<type>)`, and for an updated source `: <old_sha> -> <new_sha>, <files_changed> files changed`, for a failed or skipped one `: <error>`; `- none looked at` when there is none.
     - `## Index`: `- <added> added, <modified> modified, <removed> removed`; `- Removed <n> entries whose files are gone from the source` with their ids, when there are any; `- Enriched: <n>` with the ids of the entries enriched; `- Skipped: <n>` with each skipped entry and its reason, and each failed scan run with its files and reason.
     - `## Verification`: `- Sampled <sampled>, failed <failed>` and each drift entry, or `- not run`.
@@ -90,7 +96,7 @@ Outputs: `branch`.
 Outputs: `pr_url`, `superseded_prs`.
 
 15. CALL `shell__run` with the command `timeout 120 git -C {{settings.CORPUS_PATH}} push -u origin <branch>`.
-16. Write the body alone, the message of step 12 without its title and the empty line after it, to a second file the same way: CALL `shell__run` with `mktemp`, then `files__write_file`. CALL `shell__run` with the command `timeout 120 gh pr create --repo {{settings.CORPUS_REPO}} --base {{settings.BASE_BRANCH}} --head <branch> --title "corpus: refresh <today>" --body-file <the body file>`. The last word it prints is the pull request's URL, `pr_url`. If it prints none, EXIT `failed` with output `reason` set to "gh pr create printed no pull request URL; the branch <branch> is pushed".
+16. Write the body alone, the message of step 12 without its title and the empty line after it, to a second file the same way: CALL `shell__run` with `mktemp`, then `files__write_file`. CALL `shell__run` with the command `timeout 120 gh pr create --repo {{settings.CORPUS_REPO}} --base {{settings.BASE_BRANCH}} --head <branch> --title "<the title>" --body-file <the body file>`, the title of step 12 written out. The last word it prints is the pull request's URL, `pr_url`. If it prints none, EXIT `failed` with output `reason` set to "gh pr create printed no pull request URL; the branch <branch> is pushed".
 17. For each superseded pull request of step 5, in order, CALL `shell__run` with the command `timeout 120 gh pr close <number> --repo {{settings.CORPUS_REPO}} --comment "Superseded by <pr_url> (regenerated from current upstream)." --delete-branch`. If it fails, EXIT `failed` with output `reason` set to what it printed, then "; the new pull request is <pr_url>; pull requests already closed: " and the numbers closed so far, or "none".
 18. CALL `shell__run` with the command `timeout 120 git -C {{settings.CORPUS_PATH}} checkout {{settings.BASE_BRANCH}}`.
 19. EXIT `published` with outputs `branch`, `pr_url` and `superseded_prs`, the numbers of step 17.

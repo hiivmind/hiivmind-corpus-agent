@@ -12,7 +12,7 @@ from tests.helpers import ROOT, gh_calls
 INPUTS = (
     "sources", "index_changes", "removed_ids", "enriched_ids", "skipped_entries", "index_errors", "scans_failures",
     "concepts_assigned", "new_concept_candidates", "verification", "embeddings", "embeddings_lag",
-    "update_errors", "concept_errors", "verify_errors", "embed_errors",
+    "update_errors", "concept_errors", "verify_errors", "embed_errors", "migrated", "migrate_skipped", "strategy",
 )
 
 
@@ -70,3 +70,18 @@ def test_publish_names_both_refusals_and_times_every_command():
     assert commands and all(re.search(r"(^|&& )timeout 120 (git|gh) ", c) for c in commands if re.match(r"(cd [^&]+&& )?(timeout 120 )?(git|gh) ", c)), commands
     assert not re.search(r"`(cd [^`&]+&& )?(git|gh) ", text)
     assert "50" in text   # at most 50 ids in a list
+
+
+def test_publish_declares_the_migration_inputs(instance):
+    node = instance.nodes["publish"]
+    assert {"migrated", "migrate_skipped", "strategy"} <= set(node.inputs)
+
+
+async def test_publish_titles_from_the_facts(corpus):
+    from tests.test_nodes import filled_procedure
+    text = await filled_procedure(corpus, "publish", {})
+    rules = ["`corpus: migrate <today>` when Migrated", "`corpus: refresh <today>` when Sources", "`corpus: enrich <today>`"]
+    at = [text.find(rule) for rule in rules]
+    assert -1 not in at and at == sorted(at), at
+    assert '--title "<the title>"' in text and '--title "corpus: refresh' not in text
+    assert "## Migration" in text and "Migrated: <migrated> entries (<strategy>)" in text
