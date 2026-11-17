@@ -1,0 +1,3 @@
+CORPUS_PATH: /home/nathanielramm/git/hiivmind/hiivmind-corpus-better-auth
+CORPUS_REPO: hiivmind/hiivmind-corpus-better-auth
+BRANCH_PREFIX: automated/corpus-refresh-better-auth

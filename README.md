@@ -236,6 +236,19 @@ What the model wrote wrong, in the facts of `update-sources` and so in the pull 
 
 The owner accepted this (2026-11-17): real runs use `claude-sonnet-5-5`, the default when `AGENT_CORE_LANGGRAPH_MODEL` is not set, which copied the same figures correctly in step 4.
 
+### Step 1d: `status` on Polars, `claude-sonnet-5-5`
+
+2026-11-17, run `status-20261117T043727Z-f6b450`, on the owner's working clone (`config/polars.yaml`; `status` reads and changes nothing, and the clone's six changed files were the same after the run). The sequence ended `done` (exit 0) with 2 model calls. Step: `status` → `stale`. Facts: source `polars` `behind`, `index_format` `v2`, `stale_count` 36, `embeddings_lag` null (no embeddings table), `refresh_needed` true, `status_errors` none.
+
+### Step 1d: `migrate` on better-auth, pushing, `claude-sonnet-5-5`
+
+2026-11-17, on a fresh clone of `hiivmind/hiivmind-corpus-better-auth` in `~/agent-core-scratch/`, with `--param CORPUS_PATH=$HOME/agent-core-scratch/hiivmind-corpus-better-auth --param PUSH=true`.
+
+1. **Run `migrate-20261117T043835Z-391175`** ended `failed` at `checkout-sources` (exit 1), with nothing written: `git clone failed: Remote branch canary not found in upstream origin`. The corpus tracked `canary`, which `better-auth/better-auth` no longer has; the indexed commit `a9e5301` is an ancestor of its `main`. With the owner's go-ahead, `config.yaml`'s `branch` was set to `main` and pushed to the corpus's `main` (`f0070d3`; the push bypassed the repository's "changes through a pull request" rule).
+2. **Run `migrate-20261117T044746Z-fe5d98`** ended `done` (exit 0) in about 6 minutes, 44 model calls, and opened https://github.com/hiivmind/hiivmind-corpus-better-auth/pull/1 (branch `automated/corpus-refresh-better-auth-2026-11-17`, titled `corpus: migrate 2026-11-17`). Steps: checks met, `checkout-sources` done, `migrate` migrated (148 entries, tiered, sections `authentication`, `plugins`, `integrations`, `concepts`, `reference`; none skipped), `scan[list]`, `scan[1]` done, `scan[2]` to `scan[5]` failed, then `index`, `concepts`, `verify` (10 sampled, none failed), `embed` (skipped: no embeddings) and `publish` published.
+
+   Of the five scan batches, one wrote its 30 entries. Three failed on the provider's rate limit (`429`, "Number of concurrent connections has exceeded your rate limit"), as the fan-out runs its batches at the same time; one ended `invalid_output` (`entries` missing after the one correction). The 118 entries of those batches are in the pull request as the migration wrote them: their v1 titles and summaries, `category: unknown`, and stale (CJW-8). Once the pull request is merged, the next `enrich` scans them again.
+
 ### Not yet run
 
 Step 5 (criterion 1 on a real corpus: exit 0, `already current`, no model call) is not run: `detect.py` prints `no-model`, so the embeddings lag stays above 0. It runs on a corpus whose embeddings are ready (`detect.py` prints `ready`) or on one with no `index-embeddings.lance/`; the result will say which.
