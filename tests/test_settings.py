@@ -25,4 +25,7 @@ def test_a_missing_setting_stops_the_run_before_it_starts_and_names_it(tmp_path)
 
 
 def test_the_instance_loads(instance):
-    assert set(instance.nodes) == {"update-sources", "scan", "index", "concepts", "verify", "embed", "publish"} and instance.backend == "langgraph"
+    assert set(instance.nodes) == {
+        "update-sources", "scan", "index", "concepts", "verify", "embed", "publish", "checkout-sources", "status", "migrate",
+        "graph-validate",
+    } and instance.backend == "langgraph"

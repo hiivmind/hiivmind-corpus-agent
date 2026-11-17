@@ -1,0 +1,12 @@
+[
+  [["files__read_text_file", {"path": "@CORPUS@/config.yaml"}]],
+  [["reference", {"doc": "sources/git", "section": "Sparse Checkout for Large Repositories"}]],
+  [["shell__run", {"command": "test -d @CORPUS@/.source/docs/.git && echo cloned || echo missing"}]],
+  [["shell__run", {"command": "mkdir -p @CORPUS@/.source && git clone --filter=blob:none --sparse --depth=50 --branch main @UPSTREAM@ @CORPUS@/.source/docs"}]],
+  [["shell__run", {"command": "git -C @CORPUS@/.source/docs sparse-checkout set docs"}]],
+  [["shell__run", {"command": "git -C @CORPUS@/.source/docs fetch --depth=50 origin main"}]],
+  [["shell__run", {"command": "git -C @CORPUS@/.source/docs cat-file -e @OLD_SHA@^{commit}"}]],
+  [["shell__run", {"command": "git -C @CORPUS@/.source/docs checkout -q -B main @OLD_SHA@"}]],
+  [["shell__run", {"command": "git -C @CORPUS@/.source/docs rev-parse HEAD"}]],
+  [["exit", {"outcome": "done", "outputs": {"checkouts": [{"id": "docs", "status": "checked-out"}], "checkout_errors": []}}]]
+]

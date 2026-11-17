@@ -6,6 +6,10 @@ nodes:
   - {name: verify, path: skills/verify}
   - {name: embed, path: skills/embed}
   - {name: publish, path: skills/publish}
+  - {name: checkout-sources, path: skills/checkout-sources}
+  - {name: status, path: skills/status}
+  - {name: migrate, path: skills/migrate}
+  - {name: graph-validate, path: skills/graph-validate}
 exits:
   done: route
   declined: route

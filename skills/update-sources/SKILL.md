@@ -55,32 +55,26 @@ Outputs: the status of each source, and which sources are behind.
 ## Phase 3: Update sources
 Outputs: the new commit of each source that is behind.
 
-Update each source that is behind, one after the other. A source that fails does not stop the others: its record is `status: failed` with `error` set to what went wrong, its `new_sha` null and `files_changed` 0, `<id>: <error>` is added to `update_errors`, its entries are left as they were, and you go to step 17.
+Update each source that is behind, one after the other. A source that fails does not stop the others: its record is `status: failed` with `error` set to what went wrong, its `new_sha` null and `files_changed` 0, `<id>: <error>` is added to `update_errors`, its entries are left as they were, and you go to step 13.
 
 The working copy of a source is `<clone>` = `{{settings.CORPUS_PATH}}/.source/<id>`, where `<id>` is the source's `id`. It is a sparse clone, as the "Sparse Checkout for Large Repositories" section of the `sources/git` document says. Never use the GitHub compare API to find the changed files (`gh api repos/<owner>/<repo>/compare/...`): it stops at 300 files and drops the rest without saying so. The changed files are found with a local `git diff` in the clone, which `apply_source_update` runs.
 
-9. If no source is behind, there is nothing to apply: go to step 19.
+9. If no source is behind, there is nothing to apply: go to step 15.
 10. CALL `reference` with `doc` `sources/git` and `section` `Sparse Checkout for Large Repositories`.
 11. Take the first source that is behind, in the order of `config.yaml`, that has not been checked out or failed yet.
-12. CALL `shell__run` with the command `test -d <clone>/.git && echo cloned || echo missing`, the path written out.
-13. If it printed `missing`, CALL `shell__run` with the command `mkdir -p {{settings.CORPUS_PATH}}/.source && git clone --filter=blob:none --sparse --depth=50 --branch <branch> <repo_url> <clone>`. Then CALL `shell__run` with `git -C <clone> sparse-checkout set <docs_root>`; when the source's `docs_root` is `.` or none, use `git -C <clone> sparse-checkout disable` instead. If a command fails, the source fails.
-14. CALL `shell__run` with the command `git -C <clone> fetch --depth=50 origin <branch>`. If it fails, the source fails.
-15. Make sure the commit the index was built at can be resolved, so that it can be diffed. CALL `shell__run` with `git -C <clone> cat-file -e <last_commit_sha>^{commit}`. If it fails:
-    1. CALL `shell__run` with `git -C <clone> rev-parse --is-shallow-repository`. If it prints `false`, the commit is not in the history of the branch: the source fails with the error "commit <last_commit_sha> is not in the history of <branch>".
-    2. Otherwise deepen the clone: CALL `shell__run` with `git -C <clone> fetch --shallow-since=<last_indexed_at> origin <branch>`, then try `cat-file -e` again.
-    3. If it still fails, CALL `shell__run` with `git -C <clone> fetch --unshallow origin <branch>`, then try `cat-file -e` again. If it still fails, the source fails with the error "commit <last_commit_sha> cannot be resolved, even with the full history".
-16. CALL `shell__run` with `git -C <clone> checkout -q -B <branch> FETCH_HEAD`, then CALL `shell__run` with `git -C <clone> rev-parse HEAD`. If a command fails, the source fails. The commit it prints is the source's new commit, `<new_sha>`; its record's `new_sha` is its first seven characters. The source is now checked out.
-17. If a source that is behind has not been checked out or failed yet, go to step 11.
+12. Update its working copy and check out the head of its branch: `<commit>` is `FETCH_HEAD`, what step c fetches. When the steps below end with the source checked out, the commit `rev-parse` printed is the source's new commit, `<new_sha>`; its record's `new_sha` is its first seven characters.
+{{include fragments/sources/git.md}}
+13. If a source that is behind has not been checked out or failed yet, go to step 11.
 
 ## Phase 4: Apply changes to the index
 Outputs: `index_changes`, `removed_ids`.
 
-18. For each source that is checked out, in the order of `config.yaml`, CALL `apply_source_update` with `source` its `id`, `old_sha` its `last_commit_sha` in full and `new_sha` its `<new_sha>` of step 16 in full. It applies the diff to `index.yaml` and `graph.yaml`, records the new commit in `config.yaml`, and returns `files_changed`, `added`, `modified`, `removed`, `removed_ids`, `stale_entries` and `excluded`.
+14. For each source that is checked out, in the order of `config.yaml`, CALL `apply_source_update` with `source` its `id`, `old_sha` its `last_commit_sha` in full and `new_sha` its `<new_sha>` of step 12 in full. It applies the diff to `index.yaml` and `graph.yaml`, records the new commit in `config.yaml`, and returns `files_changed`, `added`, `modified`, `removed`, `removed_ids`, `stale_entries` and `excluded`.
     - It returns an error: the source fails with that error, as Phase 3 says; its entries stay as they were.
     - Otherwise its record is `status: updated` with `files_changed` from the result. Add `added`, `modified` and `removed` to those of `index_changes`, its `stale_entries` to `index_changes`'s `stale_entries`, and its `removed_ids` to `removed_ids`. For each path in `excluded`, add `excluded-by-config: <path>` to `update_errors`.
-19. CALL `drop_missing` with `sources` set to `{"id": <id>, "status": <status>}` for each source looked at, from its record. It removes the entries whose files git says are gone from the source, and renders `index.md` when any went. Add the ids of its `removed` to `removed_ids`. If it returns an error, add `drop_missing failed: <error>` to `update_errors`.
-20. If a source has the status `updated`, render the index; the node's error list is `update_errors`. {{include fragments/render-index.md}}
-21. If a source has the status `updated`, EXIT `updated`; otherwise EXIT `current`. The outputs are `sources` (the records of the sources, in the order of `config.yaml`, with `error` only on a source that failed or was skipped), `index_changes`, `removed_ids` and `update_errors`.
+15. CALL `drop_missing` with `sources` set to `{"id": <id>, "status": <status>}` for each source looked at, from its record. It removes the entries whose files git says are gone from the source, and renders `index.md` when any went. Add the ids of its `removed` to `removed_ids`. If it returns an error, add `drop_missing failed: <error>` to `update_errors`.
+16. If a source has the status `updated`, render the index; the node's error list is `update_errors`. {{include fragments/render-index.md}}
+17. If a source has the status `updated`, EXIT `updated`; otherwise EXIT `current`. The outputs are `sources` (the records of the sources, in the order of `config.yaml`, with `error` only on a source that failed or was skipped), `index_changes`, `removed_ids` and `update_errors`.
 
 ## Errors
 
@@ -89,7 +83,7 @@ Outputs: `index_changes`, `removed_ids`.
 | `error:` on `config.yaml` (step 2) | EXIT `failed` with output `reason` set to the error. |
 | A source that is not `git` (step 7) | The source is `skipped-manual`, as step 7 says. |
 | A source whose freshness is unknown (step 8) | The source is `failed` with its error; the other sources go on. |
-| A clone, fetch or checkout command fails (steps 13 to 16) | That source is `failed` with the error; its entries stay as they were; the other sources go on. |
-| A deepen leaves the commit unresolved (step 15) | The source is `failed`; the other sources go on. |
-| `apply_source_update` returns an error (step 18) | That source is `failed` with the error; its entries stay as they were. |
-| `drop_missing` returns an error (step 19) | Add `drop_missing failed: <error>` to `update_errors`. |
+| A clone, fetch or checkout command fails (step 12) | That source is `failed` with the error; its entries stay as they were; the other sources go on. |
+| A deepen leaves the commit unresolved (step 12, d) | The source is `failed`; the other sources go on. |
+| `apply_source_update` returns an error (step 14) | That source is `failed` with the error; its entries stay as they were. |
+| `drop_missing` returns an error (step 15) | Add `drop_missing failed: <error>` to `update_errors`. |
