@@ -114,7 +114,7 @@ async def test_update_sources_keeps_the_recipe_for_git_sources(corpus):
     included."""
     text = await filled_procedure(corpus, "update-sources", {"sources": "all"})
     assert "git clone --filter=blob:none --sparse --depth=50" in text and "/.source/" in text
-    assert "sparse-checkout set <docs_root>" in text
+    assert "sparse-checkout set --skip-checks '<docs_root>'" in text   # atproto's docs_root is `src/app/[locale]`
     assert 0 < text.index("--shallow-since") < text.index("--unshallow")
     assert "Never use the GitHub compare API" in text
     assert "is not handled by this instance yet" in text
