@@ -17,17 +17,14 @@ dev = ["pytest", "pytest-asyncio"]
 [tool.uv.sources]
 agent-core = { path = "../hiivmind-agent-core" }
 agent-tools = { path = "../hiivmind-agent-core/packages/agent-tools" }
-hiivmind-corpus-lib = { workspace = true }
+hiivmind-corpus-lib = { path = "../hiivmind-corpus-lib" }
 mountainash-settings = { git = "ssh://git@github.com/mountainash-io/mountainash-settings.git", rev = "7a4b43bf4789b43a808ca1520012fc413d221e64" }
-
-[tool.uv.workspace]
-members = ["packages/*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
-testpaths = ["tests", "packages/corpus-lib/tests"]
-pythonpath = [".", "packages/corpus-lib/tests"]
+testpaths = ["tests"]
+pythonpath = [".", "../hiivmind-corpus-lib/tests"]
 markers = ["model: calls a model provider and costs money"]
 # Run pytest from the repository root: --basetemp is relative to it. The temporary directories are kept out of any
 # hidden directory (TMPDIR may point into one) because the snap `yq` cannot read a hidden directory.

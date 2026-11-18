@@ -13,9 +13,9 @@ This instance is a port of the existing corpus refresh, rewritten to the agent-c
 
 | File here | From | Revision |
 |---|---|---|
-| `packages/corpus-lib/tests/fixtures/render-index.sh` | `hiivmind-corpus-data/hiivmind-corpus-polars/render-index.sh`, unchanged | `hiivmind-corpus-data` `56ef52f` |
+| `hiivmind-corpus-lib/tests/fixtures/render-index.sh` | `hiivmind-corpus-data/hiivmind-corpus-polars/render-index.sh`, unchanged | `hiivmind-corpus-data` `56ef52f` |
 
-The scripts and documents the nodes use are in the corpus package, `packages/corpus-lib/src/hiivmind_corpus/`: `scripts/` and `documents/` (until step 1c, `scripts/` and `reference/` of this instance). They were copied from `hiivmind-corpus` at `d9ba1ad`, unchanged except those listed under "Edited copies". Since then the package owns these copies: nothing keeps them in step with the plugin, which is left as it is.
+The scripts and documents the nodes use are in the corpus package, `src/hiivmind_corpus/` of `hiivmind-corpus-lib`: `scripts/` and `documents/` (until step 1c, `scripts/` and `reference/` of this instance). They were copied from `hiivmind-corpus` at `d9ba1ad`, unchanged except those listed under "Edited copies". Since then the package owns these copies: nothing keeps them in step with the plugin, which is left as it is.
 
 | File here (under `hiivmind_corpus/`) | From (at `d9ba1ad`) |
 |---|---|
@@ -58,7 +58,7 @@ The seven nodes are written from step 1b's `refresh` and `enrich` nodes (themsel
 
 ## Written here as code, from the skills and the template
 
-These are not copies. Each is the logic of a skill or of the template, as a function or a script, so that no model call is spent on a step that has no judgement in it. They are in the corpus package, `packages/corpus-lib/src/hiivmind_corpus/`.
+These are not copies. Each is the logic of a skill or of the template, as a function or a script, so that no model call is spent on a step that has no judgement in it. They are in the corpus package, `src/hiivmind_corpus/` of `hiivmind-corpus-lib`.
 
 | File there | What it is | Taken from, at |
 |---|---|---|

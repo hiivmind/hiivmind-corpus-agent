@@ -1,6 +1,6 @@
 # AGENTS.md — hiivmind-corpus-agent
 
-The corpus instance of agent-core: the corpus nodes (`skills/`), sequences (`topology.yaml`), thin tools (`tools/corpus.py`) and the corpus capabilities package (`packages/corpus-lib/`). Its planning and principles live in `hiivmind-central`, checked out beside this repository, under the project `hiivmind-agent-core`.
+The corpus instance of agent-core: the corpus nodes (`skills/`), sequences (`topology.yaml`), thin tools (`tools/corpus.py`) and the corpus capabilities package (`hiivmind-corpus-lib`, checked out beside this repository). Its planning and principles live in `hiivmind-central`, checked out beside this repository, under the project `hiivmind-agent-core`.
 
 ## Principles
 

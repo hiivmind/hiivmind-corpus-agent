@@ -2,7 +2,7 @@
 
 A corpus instance for [agent-core](../hiivmind-agent-core): the scheduled refresh of a documentation corpus, as a sequence of nodes with a model. `agent-core job instance.yaml refresh --settings config/<corpus>.yaml` walks the `refresh` sequence of `topology.yaml`: it checks a corpus against its upstream sources, brings its index up to date, commits the result on a new branch and, when `PUSH` is true, opens a pull request. There is no job script.
 
-The nodes (`skills/`) orchestrate tools; the tools (`tools/corpus.py`) are thin clients of the corpus package, `packages/corpus-lib/` (`hiivmind_corpus`), which holds the index writer, the status code, the base-branch check, and the scripts and documents the nodes use. The package imports neither agent-core nor the instance.
+The nodes (`skills/`) orchestrate tools; the tools (`tools/corpus.py`) are thin clients of the corpus package, `hiivmind-corpus-lib` (`hiivmind_corpus`, the sibling repository `../hiivmind-corpus-lib`), which holds the index writer, the status code, the base-branch check, and the scripts and documents the nodes use. The package imports neither agent-core nor the instance.
 
 It is a port of the existing refresh (`hiivmind-corpus` and `hiivmind-corpus-scheduler`), rewritten to the core's verbs; `PORT.md` lists which file came from which, at which revision. The existing plugin and the scheduler are unchanged.
 
@@ -78,7 +78,7 @@ Write one settings file, `config/<corpus>.yaml`, with `CORPUS_PATH`, `CORPUS_REP
 
 ## Add a source kind
 
-Git is the only kind handled. The seam is `packages/corpus-lib/src/hiivmind_corpus/sources/__init__.py`. A kind is:
+Git is the only kind handled. The seam is `src/hiivmind_corpus/sources/__init__.py` in `hiivmind-corpus-lib`. A kind is:
 
 1. a module in that package with a class that has `freshness(source, corpus)`, returning `("current" | "behind" | "unknown", error or None)` without cloning or changing anything, as `sources/git.py` does;
 2. a line in `SOURCE_KINDS`, keyed by the source's `type`;
