@@ -8,7 +8,7 @@ It is a port of the existing refresh (`hiivmind-corpus` and `hiivmind-corpus-sch
 
 ## Requirements
 
-- Python 3.12 or later and `uv`. `uv sync` installs the instance. `pyproject.toml` takes `agent-core[langgraph]` and `agent-tools` by path from `../hiivmind-agent-core`, and the corpus package as a uv workspace member (`packages/*`), so the core has to be checked out beside this repository; after any change to the core, run `uv sync --reinstall-package agent-core`.
+- Python 3.12 or later and `uv`. `uv sync` installs the instance. `pyproject.toml` takes `agent-core[langgraph]` and `agent-tools` by path from `../hiivmind-agent-core`, and the corpus package `hiivmind-corpus-lib` by path from `../hiivmind-corpus-lib`, so both repositories (`hiivmind-agent-core` and `hiivmind-corpus-lib`) have to be checked out beside this repository, or `uv sync` fails; the tests also read `../hiivmind-corpus-lib/tests`. After any change to the core, run `uv sync --reinstall-package agent-core`.
 - `git`, and `gh` logged in to GitHub when `PUSH` is true (`publish` lists, opens and closes pull requests); with `PUSH` false no `gh` command runs.
 - The corpus's own `render-index.sh` needs `yq`, the Go one (mikefarah, version 4). The snap `yq` cannot read a hidden directory, so a corpus must not be under a path with a hidden component (`.cache`, `.hiivmind`, ...); the tests keep their temporary directories in `test-tmp/` for this reason.
 - `npx`, for the reference filesystem MCP server the nodes read and write files through (`instance.yaml`, `servers`).
