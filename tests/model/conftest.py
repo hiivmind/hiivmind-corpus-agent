@@ -1,6 +1,6 @@
-"""The `run_job` fixture of the model tests: one sequence through `agent-core job ... --backend langgraph`, in a subprocess.
+"""The `run_job` fixture of the model tests: one sequence through `agent-core job`, on the LangGraph backend, in a subprocess.
 
-The model is `AGENT_CORE_LANGGRAPH_MODEL` (develop on `claude-haiku-5-5`); the directory of every run is kept under
+The model is `anthropic:claude-haiku-5-5`, set as `AGENT_CORE_LANGGRAPH_MODEL` unless the shell already sets it; the directory of every run is kept under
 `runs/model-tests/<date>/<model>/<test>/`, which git ignores.
 """
 
@@ -19,7 +19,8 @@ import pytest
 
 from tests.helpers import ROOT
 
-MODEL = os.environ.get("AGENT_CORE_LANGGRAPH_MODEL", "claude-sonnet-5-5")
+MODEL_ID = os.environ.get("AGENT_CORE_LANGGRAPH_MODEL", "anthropic:claude-haiku-5-5")
+MODEL = MODEL_ID.split(":")[-1]
 
 
 @dataclass
@@ -41,8 +42,17 @@ class Ran:
         """What every node of the sequence gave, by name (the record's `facts`)."""
         return self.record.get("facts") or {}
 
+    @property
+    def model_calls(self) -> int:
+        return sum(note.get("model_calls", 0) for note in self.record.get("notes") or [])
+
     def outcome(self, step: str) -> str | None:
-        return next((s["outcome"] for s in self.record.get("steps") or [] if s["name"] == step), None)
+        """The outcome of the last step named `step`, looking inside a fragment's trail entry (`steps`) too."""
+        def walk(steps):
+            for s in steps or []:
+                yield s
+                yield from walk(s.get("steps"))
+        return next((s.get("outcome") for s in reversed(list(walk(self.record.get("steps")))) if s.get("name") == step), None)
 
     def why(self) -> str:
         """What to show when an assertion about this run fails."""
@@ -68,13 +78,13 @@ def run_job(request):
         run_dir = where / f"run-{next(runs)}"
         run_dir.mkdir(parents=True)
         command = [
-            sys.executable, "-m", "agent_core.core.cli", "job", str(ROOT / "instance.yaml"), sequence,
-            "--settings", str(corpus.settings_file), "--backend", "langgraph", "--run-dir", str(run_dir),
+            sys.executable, "-m", "agent_core.cli", "job", str(ROOT / "instance.yaml"), sequence,
+            "--settings", str(corpus.settings_file), "--no-ask", "--backend", "langgraph", "--run-dir", str(run_dir),
         ]
         for key, value in params.items():
             command += ["--param", f"{key}={value}"]
         done = subprocess.run(
-            command, cwd=ROOT, env={**os.environ, **corpus.environment()}, capture_output=True, text=True,
+            command, cwd=ROOT, env={**os.environ, "AGENT_CORE_LANGGRAPH_MODEL": MODEL_ID, **corpus.environment()}, capture_output=True, text=True,
             stdin=subprocess.DEVNULL, timeout=1800,
         )
         (run_dir / "stdout.txt").write_text(done.stdout)

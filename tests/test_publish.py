@@ -18,14 +18,14 @@ INPUTS = (
 
 def test_publish_declares_its_inputs_and_contract(instance):
     node = instance.nodes["publish"]
-    assert set(node.inputs) == set(INPUTS) and set(node.outputs) == {"branch", "pr_url", "superseded_prs"}
-    assert node.exits == ("published", "committed", "nothing-to-publish", "failed")
+    assert set(node.contract.inputs) == set(INPUTS) and set(node.contract.outputs) == {"branch", "pr_url", "superseded_prs"}
+    assert node.contract.exits == ("published", "committed", "nothing-to-publish", "failed")
     assert "files__edit_file" not in node.allowed_tools
 
 
-async def test_publish_declares_its_inputs_as_optional(corpus):
+async def test_publish_declares_its_inputs_as_optional(corpus, instructions):
     from tests.test_nodes import filled_procedure
-    text = await filled_procedure(corpus, "publish", {})
+    text = await filled_procedure(instructions, "publish", {})
     assert "not given" in text and "{{" not in text
 
 
@@ -63,7 +63,7 @@ async def test_publish_with_push_on_opens_the_pull_request_and_closes_the_supers
 
 def test_publish_names_both_refusals_and_times_every_command():
     """The procedure is where the approved refusals live now (CRP-9), and every git and gh command has a time limit."""
-    text = (ROOT / "skills" / "publish" / "SKILL.md").read_text()
+    text = (ROOT / "nodes" / "publish.md").read_text()
     assert "staged outside" in text and "nothing was committed" in text
     assert "but CORPUS_REPO is" in text and "nothing was pushed" in text
     commands = re.findall(r"`([^`]*\b(?:git|gh) [^`]*)`", text)
@@ -74,12 +74,12 @@ def test_publish_names_both_refusals_and_times_every_command():
 
 def test_publish_declares_the_migration_inputs(instance):
     node = instance.nodes["publish"]
-    assert {"migrated", "migrate_skipped", "strategy"} <= set(node.inputs)
+    assert {"migrated", "migrate_skipped", "strategy"} <= set(node.contract.inputs)
 
 
-async def test_publish_titles_from_the_facts(corpus):
+async def test_publish_titles_from_the_facts(corpus, instructions):
     from tests.test_nodes import filled_procedure
-    text = await filled_procedure(corpus, "publish", {})
+    text = await filled_procedure(instructions, "publish", {})
     rules = ["`corpus: migrate <today>` when Migrated", "`corpus: refresh <today>` when Sources", "`corpus: enrich <today>`"]
     at = [text.find(rule) for rule in rules]
     assert -1 not in at and at == sorted(at), at

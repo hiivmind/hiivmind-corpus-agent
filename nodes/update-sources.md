@@ -63,7 +63,7 @@ The working copy of a source is `<clone>` = `{{settings.CORPUS_PATH}}/.source/<i
 10. CALL `reference` with `doc` `sources/git` and `section` `Sparse Checkout for Large Repositories`.
 11. Take the first source that is behind, in the order of `config.yaml`, that has not been checked out or failed yet.
 12. Update its working copy and check out the head of its branch: `<commit>` is `FETCH_HEAD`, what step c fetches. When the steps below end with the source checked out, the commit `rev-parse` printed is the source's new commit, `<new_sha>`; its record's `new_sha` is its first seven characters.
-{{include fragments/sources/git.md}}
+{{include includes/sources/git.md}}
 13. If a source that is behind has not been checked out or failed yet, go to step 11.
 
 ## Phase 4: Apply changes to the index
@@ -73,7 +73,7 @@ Outputs: `index_changes`, `removed_ids`.
     - It returns an error: the source fails with that error, as Phase 3 says; its entries stay as they were.
     - Otherwise its record is `status: updated` with `files_changed` from the result. Add `added`, `modified` and `removed` to those of `index_changes`, its `stale_entries` to `index_changes`'s `stale_entries`, and its `removed_ids` to `removed_ids`. For each path in `excluded`, add `excluded-by-config: <path>` to `update_errors`.
 15. CALL `drop_missing` with `sources` set to `{"id": <id>, "status": <status>}` for each source looked at, from its record. It removes the entries whose files git says are gone from the source, and renders `index.md` when any went. Add the ids of its `removed` to `removed_ids`. If it returns an error, add `drop_missing failed: <error>` to `update_errors`.
-16. If a source has the status `updated`, render the index; the node's error list is `update_errors`. {{include fragments/render-index.md}}
+16. If a source has the status `updated`, render the index; the node's error list is `update_errors`. {{include includes/render-index.md}}
 17. If a source has the status `updated`, EXIT `updated`; otherwise EXIT `current`. The outputs are `sources` (the records of the sources, in the order of `config.yaml`, with `error` only on a source that failed or was skipped), `index_changes`, `removed_ids` and `update_errors`.
 
 ## Errors

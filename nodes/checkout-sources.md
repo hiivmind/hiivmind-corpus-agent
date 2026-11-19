@@ -37,6 +37,6 @@ A source that fails does not stop the others: its record is `status: failed` wit
 2. CALL `reference` with `doc` `sources/git` and `section` `Sparse Checkout for Large Repositories`.
 3. Take the first source of `config.yaml`, in its order, that has not been checked out or failed yet.
 4. Check out the commit the index was built at: `<commit>` is the source's `last_commit_sha`, as `config.yaml` writes it. When the steps below end with the source checked out, its record is `status: checked-out`.
-{{include fragments/sources/git.md}}
+{{include includes/sources/git.md}}
 5. If a source has not been checked out or failed yet, go to step 3.
 6. If a source failed, EXIT `failed`; otherwise EXIT `done`. The outputs are `checkouts` (the records, in the order of `config.yaml`, with `error` only on a source that failed) and `checkout_errors`.

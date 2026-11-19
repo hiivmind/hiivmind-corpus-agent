@@ -1,10 +1,10 @@
-"""The refresh sequence with a model: `agent-core job ... refresh --backend langgraph` on corpora built in a temporary directory.
+"""The refresh sequence with a model: `agent-core job ... refresh` on LangGraph on corpora built in a temporary directory.
 
 These tests carry the marker `model`: they call a model provider, cost money and do not run by default. They use the model in
-`AGENT_CORE_LANGGRAPH_MODEL` (develop on `claude-haiku-5-5`; the pass bar is one pass on `claude-sonnet-5-5`) and need
+`AGENT_CORE_LANGGRAPH_MODEL` (`anthropic:claude-haiku-5-5` unless set) and need
 `ANTHROPIC_API_KEY` in the environment of the shell that starts pytest:
 
-    set -a && . <file holding the key> && set +a && AGENT_CORE_LANGGRAPH_MODEL=claude-haiku-5-5 uv run pytest tests/model -m model -q
+    set -a && . <file holding the key> && set +a && uv run pytest -m model tests/model -q
 
 Nothing leaves the machine. A corpus's upstream and its origin are local git repositories, `PUSH` is false except in the second
 test (which pushes to the test's own bare origin), and `gh` is the stand-in of `tests/conftest.py`.
@@ -43,7 +43,7 @@ def assert_refreshed(corpus, ran, source: str, today: str) -> None:
     """What a refresh of a fixture corpus must have done. `source` is the id of its one source. `publish` commits on a new
     branch and returns to the base branch, so the refreshed files are read from the branch."""
     assert ran.code == 0 and ran.record.get("end_state") == "done", ran.why()
-    assert ran.record["model_calls"] > 0, "the run made no model call"
+    assert ran.model_calls > 0, "the run made no model call"
     facts = ran.facts
     branch = ran.record["summary"]["branch"]
 
