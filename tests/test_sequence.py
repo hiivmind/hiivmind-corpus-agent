@@ -134,7 +134,16 @@ async def test_a_run_crashed_in_verify_resumes_there(corpus, job, monkeypatch): 
         cwd=ROOT, capture_output=True, text=True, stdin=subprocess.DEVNULL,
     )
     assert child.returncode != 0 and not (corpus.base / "runs" / "crashed" / "record.json").exists(), child.stdout   # killed: no record
+    import importlib
+    corpus_tools = importlib.import_module("tools.corpus")
+    checked = []   # the checks' tools called in this process
+    for name in ("prepare_base", "refresh_needed"):
+        original = getattr(corpus_tools, name)
+        monkeypatch.setattr(corpus_tools, name, lambda *a, _o=original, _n=name, **k: (checked.append(_n), _o(*a, **k))[1])
     r = await job(resume="crashed")
+    assert checked == []   # `checks` was not run again
+    ran = [note.node for note in r.record.notes]   # the nodes that started in this process
+    assert ran == ["index", "concepts", "verify", "embed", "publish"]   # not update-sources; the fragment ran again from its start, its journalled scan units replayed, not run
     assert r.end == "done" and r.run_id == "crashed"
     assert names(r) == WALK and r.steps[1]["outcome"] == "updated"   # the macro trail: the fragment once, as one step
     assert inner(r)[0] == "scan[list]" and inner(r)[-5:] == TAIL[3:] and outcomes(r)["publish"] == "committed"   # verify and on ran in the resume
