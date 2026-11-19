@@ -201,3 +201,37 @@ The owner accepted this (2026-11-17): real runs use `claude-sonnet-5-5`, the def
 ### Not yet run
 
 Step 5 (criterion 1 on a real corpus: exit 0, `already current`, no model call) is not run: `detect.py` prints `no-model`, so the embeddings lag stays above 0. It runs on a corpus whose embeddings are ready (`detect.py` prints `ready`) or on one with no `index-embeddings.lance/`; the result will say which.
+
+## Cutover gate, 2026-11-19
+
+REB-1 on the new build: `agent-core job` on LangGraph, `AGENT_CORE_LANGGRAPH_MODEL=anthropic:claude-sonnet-5-5`, `--no-ask`, `PUSH=false`, scratch clones only. Origins are local bare repos in `~/agent-core-scratch/gate/` cloned read-only from GitHub; nothing was pushed. Each produced tree was checked in a worktree of the working clone (under `~/agent-core-scratch/gate/`, not `/tmp`: the snap-packaged `yq` that `render-index.sh` calls cannot read `/tmp`).
+
+Result: both runs ended `done` with exit 0, and both produced trees load and render.
+
+### `refresh` on Polars (stale clone `gate-stale` at `1a67fe0`)
+
+```bash
+AGENT_CORE_LANGGRAPH_MODEL=anthropic:claude-sonnet-5-5 uv run agent-core job instance.yaml refresh \
+  --settings config/polars.yaml --param CORPUS_PATH=$HOME/agent-core-scratch/gate/data/hiivmind-corpus-polars \
+  --param BASE_BRANCH=gate-stale --param PUSH=false --no-ask
+```
+
+- Run `refresh-20261119T055339Z-f18c6b`; exit 0; `end_state` `done`; 5 m 26 s.
+- Steps: `checks` met; `update-sources` updated (`5eaa754` to `b145ff9`, 29 files changed); `enrich-and-publish` committed (`scan[list]`, `scan[1]`, `scan`, `index`, `concepts`, `verify`, `embed`, `publish` committed). 28 entries enriched; no failures, update errors, index errors or scan failures.
+- Model calls: 40 (update-sources 10, scan 7, index 3, concepts 4, verify 2, embed 4, publish 10). Tokens sent 781,522 (cache read 574,622, cache written 206,806).
+- Produced branch `automated/corpus-refresh-polars-2026-11-19`; validated commit `7c5319831ad3cddfbbd96373e8165f106c5e560d`.
+- Index check, in `hiivmind-corpus-polars`: `load_index` printed `2` (the brief's `len()` of the loaded dict: its keys `meta` and `entries`; `entries` holds 80); `bash render-index.sh index.yaml` printed `Rendered ./index.md (80 entries)`, exit `0`, tree left clean.
+
+### `migrate` on atproto (v1 clone `gate-v1`, parent of `32c014f`, the commit that added `index.yaml`)
+
+```bash
+AGENT_CORE_LANGGRAPH_MODEL=anthropic:claude-sonnet-5-5 uv run agent-core job instance.yaml migrate \
+  --settings config/atproto.yaml --param CORPUS_PATH=$HOME/agent-core-scratch/gate/atproto \
+  --param BASE_BRANCH=gate-v1 --param PUSH=false --no-ask
+```
+
+- Run `migrate-20261119T055942Z-8702ba`; exit 0; `end_state` `done`; 6 m 42 s.
+- Steps: `checks` met; `checkout-sources` done (1 checkout, no errors); `migrate` migrated (129 entries, strategy `single`); `enrich-and-publish` committed (`scan[list]`, `scan[1]` to `scan[5]`, `scan`, `index`, `concepts`, `verify`, `embed`, `publish` committed). 129 entries enriched; no failures or skipped entries.
+- Model calls: 59 (checkout-sources 9, migrate 2, scan 7+5+6+5+3, index 3, concepts 2, verify 2, embed 3, publish 12). Tokens sent 1,423,809 (cache read 886,293, cache written 537,374).
+- Produced branch `automated/corpus-refresh-atproto-2026-11-19`; validated commit `140fb7c165c22bb8df1f1c135594983e30ef0364`.
+- Index check: `load_index` printed `2` (keys `meta`, `entries`; `entries` holds 129); `bash render-index.sh index.yaml` printed `Rendered ./index.md (129 entries)`, exit `0`, tree left clean.
