@@ -37,7 +37,7 @@ uv run agent-core job instance.yaml <sequence> --settings config/<corpus>.yaml [
 - A run is recorded in `runs/<sequence>-<UTC start>-<id>/record.json`; `--resume <run id>` continues a crashed run.
 - Exit code: 0 when the sequence ends `done` or `stopped`, 1 when it ends `failed`, 2 when it could not start.
 
-Needs `git`, `yq` (the Go one), `npx`, `gh` when `PUSH` is true, and the model's API key in the environment.
+Needs `git`, `yq` (the Go one), `npx`, `gh` when `PUSH` is true, the provider credential (`ANTHROPIC_API_KEY`) in the environment, and `AGENT_CORE_LANGGRAPH_MODEL`, which is required, in `provider:model` form with no default, for example `anthropic:claude-sonnet-5-5`. Without it the CLI exits 2.
 
 ## Tests
 

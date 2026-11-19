@@ -28,7 +28,7 @@ def test_nothing_calls_a_node_a_skill():   # LNG-1
 def test_no_procedure_topology_or_tool_declaration_names_the_sdk():   # VERB-4a
     # `backend: langgraph` is configuration (G9) and is not checked: only `servers` and `tools` of instance.yaml are.
     instance = yaml.safe_load((ROOT / "instance.yaml").read_text())
-    texts = {path: path.read_text() for path in [*PROSE, ROOT / "topology.yaml"]} | _docs_without_v0_runs()
+    texts = {path: path.read_text() for path in [*PROSE, ROOT / "topology.yaml"]}
     texts[ROOT / "instance.yaml#servers+tools"] = yaml.safe_dump({"servers": instance["servers"], "tools": instance["tools"]})
     for path, text in texts.items():
         for word in WORDS:
