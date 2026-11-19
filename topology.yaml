@@ -14,6 +14,21 @@ exits:
   done: route
   declined: route
   failed: route
+fragments:
+  # The tail `refresh`, `enrich` and `migrate` share: scan the stale batches, then index, concepts, verify, embed, publish.
+  enrich-and-publish:
+    inputs: [sources, index_changes, removed_ids, update_errors, migrated, migrate_skipped, strategy]
+    outputs: [enriched_ids, skipped_entries, index_errors, scans_failures, branch, pr_url, superseded_prs]
+    exits: [published, committed, nothing-to-publish, failed]
+    # `max_concurrency` is how many scan runs go at once (the core's default is 4): the API key refused 3 of 4 at once with 429 "concurrent connections".
+    start: {fan_out: scan, over: {tool: stale_batches}, as: batch, into: scans, max_concurrency: 2}
+    transitions:
+      scan: {done: index, failed: index}
+      index: {done: concepts, skipped: concepts, failed: publish}
+      concepts: {done: verify, skipped: verify, failed: verify}
+      verify: {done: embed, skipped: embed, failed: embed}
+      embed: {done: publish, deferred: publish, skipped: publish, failed: publish}
+      publish: {published: end, committed: end, nothing-to-publish: end, skipped: end, failed: end}
 sequences:
   refresh:
     description: Bring one corpus up to date with its sources and open a pull request.
@@ -26,19 +41,8 @@ sequences:
       - {tool: refresh_needed, outcome: current, message: "Already current."}
     transitions:
       check: {current: end, v1: {link: migrate}}
-      update-sources:
-        # The scan fan-out, defined once here and reused by `enrich` and `migrate`. `max_concurrency` is how many scan runs
-        # go at once (the core's default is 4): the API key refused 3 of 4 at once with 429 "concurrent connections".
-        updated: &scan_batches {fan_out: scan, over: {tool: stale_batches}, as: batch, into: scans, max_concurrency: 2}
-        current: *scan_batches
-        declined: end
-        failed: end
-        skipped: publish
-      scan: {done: index, failed: index}
-      index: {done: concepts, skipped: concepts, failed: publish}
-      concepts: {done: verify, skipped: verify, failed: verify}
-      verify: {done: embed, skipped: embed, failed: embed}
-      embed: {done: publish, deferred: publish, skipped: publish, failed: publish}
+      update-sources: {updated: enrich-and-publish, current: enrich-and-publish, declined: end, failed: end, skipped: publish}
+      enrich-and-publish: &fragment_exits {published: end, committed: end, nothing-to-publish: end, skipped: end, failed: end}
       publish: {published: end, committed: end, nothing-to-publish: end, skipped: end, failed: end}
 
   status:
@@ -57,13 +61,8 @@ sequences:
       - {tool: stale_entries, outcome: nothing-stale, message: "Nothing is stale."}
     transitions:
       check: {v1: {link: migrate}, nothing-stale: end}
-      checkout-sources: {done: *scan_batches, skipped: end, failed: end}
-      scan: {done: index, failed: index}
-      index: {done: concepts, skipped: concepts, failed: publish}
-      concepts: {done: verify, skipped: verify, failed: verify}
-      verify: {done: embed, skipped: embed, failed: embed}
-      embed: {done: publish, deferred: publish, skipped: publish, failed: publish}
-      publish: {published: end, committed: end, nothing-to-publish: end, skipped: end, failed: end}
+      checkout-sources: {done: enrich-and-publish, skipped: end, failed: end}
+      enrich-and-publish: *fragment_exits
 
   migrate:
     description: Convert a v1 corpus to v2, scan every entry, and open a pull request.
@@ -74,13 +73,8 @@ sequences:
       - {tool: sources_handled, message: "The corpus has sources this instance does not handle."}
     transitions:
       checkout-sources: {done: migrate, skipped: end, failed: end}
-      migrate: {migrated: *scan_batches, skipped: end, failed: end}
-      scan: {done: index, failed: index}
-      index: {done: concepts, skipped: concepts, failed: publish}
-      concepts: {done: verify, skipped: verify, failed: verify}
-      verify: {done: embed, skipped: embed, failed: embed}
-      embed: {done: publish, deferred: publish, skipped: publish, failed: publish}
-      publish: {published: end, committed: end, nothing-to-publish: end, skipped: end, failed: end}
+      migrate: {migrated: enrich-and-publish, skipped: end, failed: end}
+      enrich-and-publish: *fragment_exits
 
   graph-validate:
     description: Check one corpus's graph.yaml against its rules.
