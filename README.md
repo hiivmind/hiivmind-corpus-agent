@@ -1,113 +1,54 @@
 # hiivmind-corpus-agent
 
-A corpus instance for [agent-core](../hiivmind-agent-core): the scheduled refresh of a documentation corpus, as a sequence of nodes with a model. `agent-core job instance.yaml refresh --settings config/<corpus>.yaml` walks the `refresh` sequence of `topology.yaml`: it checks a corpus against its upstream sources, brings its index up to date, commits the result on a new branch and, when `PUSH` is true, opens a pull request. There is no job script.
+A corpus instance of [agent-core](../hiivmind-agent-core): the refresh of a documentation corpus, written as a client of the core's facade (`agent_core.open`). It checks a corpus against its upstream sources, brings its index up to date, commits the result on a new branch and, when `PUSH` is true, opens a pull request.
 
-The nodes (`skills/`) orchestrate tools; the tools (`tools/corpus.py`) are thin clients of the corpus package, `hiivmind-corpus-lib` (`hiivmind_corpus`, the sibling repository `../hiivmind-corpus-lib`), which holds the index writer, the status code, the base-branch check, and the scripts and documents the nodes use. The package imports neither agent-core nor the instance.
+## Layout
 
-It is a port of the existing refresh (`hiivmind-corpus` and `hiivmind-corpus-scheduler`), rewritten to the core's verbs; `PORT.md` lists which file came from which, at which revision. The existing plugin and the scheduler are unchanged.
-
-## Requirements
-
-- Python 3.12 or later and `uv`. `uv sync` installs the instance. `pyproject.toml` takes `agent-core[langgraph]` and `agent-tools` by path from `../hiivmind-agent-core`, and the corpus package `hiivmind-corpus-lib` by path from `../hiivmind-corpus-lib`, so both repositories (`hiivmind-agent-core` and `hiivmind-corpus-lib`) have to be checked out beside this repository, or `uv sync` fails; the tests also read `../hiivmind-corpus-lib/tests`. After any change to the core, run `uv sync --reinstall-package agent-core`.
-- `git`, and `gh` logged in to GitHub when `PUSH` is true (`publish` lists, opens and closes pull requests); with `PUSH` false no `gh` command runs.
-- The corpus's own `render-index.sh` needs `yq`, the Go one (mikefarah, version 4). The snap `yq` cannot read a hidden directory, so a corpus must not be under a path with a hidden component (`.cache`, `.hiivmind`, ...); the tests keep their temporary directories in `test-tmp/` for this reason.
-- `npx`, for the reference filesystem MCP server the nodes read and write files through (`instance.yaml`, `servers`).
-- `ANTHROPIC_API_KEY` in the environment. The model is `AGENT_CORE_LANGGRAPH_MODEL`, `claude-sonnet-5-5` when it is not set.
-
-## Run the refresh for a corpus
-
-```bash
-cd <this directory>
-uv sync
-uv run agent-core job instance.yaml refresh --settings config/polars.yaml --param PUSH=true
-```
-
-`config/base.yaml` sets `PUSH: false`, so a run pushes only when it says `--param PUSH=true`. **`config/polars.yaml` points `CORPUS_PATH` at the owner's working clone** (`~/git/hiivmind/hiivmind-corpus-data/hiivmind-corpus-polars`): the command above, as written, checks out `BASE_BRANCH` in that clone, commits in it and pushes from it. For any other clone, give `--param CORPUS_PATH=...` as below.
-
-A corpus is named by its settings file (`config/polars.yaml`, `config/ibis.yaml`), layered over `config/base.yaml`:
-
-| Setting | Meaning |
+| Path | What it holds |
 |---|---|
-| `CORPUS_PATH` | the directory holding the corpus's `config.yaml`: the root of its repository, or a directory inside it |
-| `CORPUS_REPO` | `owner/name` on GitHub: where the pull request goes, and where `gh pr list` looks for the open ones. It must be the repository `origin` of the clone points to: with `PUSH` true, `publish` stops before making the branch when `origin` is a GitHub repository with another name (`origin` that is not a GitHub URL, a path for example, is not checked) |
-| `BRANCH_PREFIX` | the branches `publish` makes are `<BRANCH_PREFIX>-<date>`, then `-2`, `-3` ... when the name is taken |
-| `BASE_BRANCH` | default `main` |
-| `PUSH` | `false` in `config/base.yaml`; `false` commits on the new local branch and returns to `BASE_BRANCH`: nothing is pushed, no pull request is made or closed |
+| `instance.yaml` | the instance: backend, servers, settings class, and the tools `agent_core.open` registers through `harness.tools.register` |
+| `nodes/<name>.md` | one instruction file per node: `update-sources`, `scan`, `index`, `concepts`, `verify`, `embed`, `publish`, `checkout-sources`, `status`, `migrate`, `graph-validate` |
+| `includes/` | prose the nodes share, pulled in with `{{include includes/...}}` |
+| `tools/corpus.py` | the tools: thin functions over `hiivmind-corpus-lib` (`hiivmind_corpus`) |
+| `topology.yaml` | the nodes, the fragment `enrich-and-publish` and the sequences |
+| `settings.py`, `config/*.yaml` | the settings class and one settings file per corpus, over `config/base.yaml` |
+| `POLICY.md` | the policy: no force push, no history rewrite |
+| `tests/` | tests through the facade, on the scripted backend |
+| `v0/` | the previous tree, kept for its history |
 
-`--param KEY=VALUE` beats the environment (`HIIVMIND_CORPUS_<KEY>`), which beats the files. So a run on a clone somewhere else, that does not push, is
+`hiivmind-corpus-lib` and `hiivmind-agent-core` (branch `rebuild` until the cutover) are checked out beside this repository; `pyproject.toml` takes both by path, so `uv sync` fails without them.
 
-```bash
-uv run agent-core job instance.yaml refresh --settings config/polars.yaml --param CORPUS_PATH=/path/to/hiivmind-corpus-data/hiivmind-corpus-polars --param PUSH=false
-```
+## Topology
 
-and `CORPUS_REPO` follows the clone: a clone whose `origin` is `someone/fork` needs `--param CORPUS_REPO=someone/fork`, because the branch is pushed to `origin` and the pull request is opened on `CORPUS_REPO`, and `publish` refuses to push when the two differ. A setting that no file, variable or parameter gives stops the run before it starts, naming the setting (exit code 2).
+The sequences are `refresh`, `status`, `enrich`, `migrate` and `graph-validate`. Each runs its checks first, with no model call.
 
-What the `refresh` sequence does, in order (`topology.yaml`, `sequences.refresh`):
+`refresh`, `enrich` and `migrate` end in the same tail, declared once as the fragment `enrich-and-publish`: `scan` fans out over the stale batches, then `index`, `concepts`, `verify`, `embed` and `publish`. Each of the three sequences names the fragment. `publish` is also named at sequence level in `refresh`, so a skipped `update-sources` still publishes.
 
-1. **Checks, with no model call.**
-   1. `prepare_base`: stops when the working tree is dirty or when `BASE_BRANCH` has commits that `origin/BASE_BRANCH` does not; checks out `BASE_BRANCH`, fetches `origin` and fast-forwards. A problem fails the run before any node, with its reason (exit 1).
-   2. `index_is_v2`: a corpus with no `index.yaml` (a v1 corpus) goes on to the `migrate` sequence, below, instead of refreshing.
-   3. `corpus_ready`: `config.yaml` has a source, `index.yaml` exists and `index.md` is not the build's placeholder.
-   4. `refresh_needed`: when every source is current, no entry is stale and the embeddings do not lag, the run ends `Already current.` (exit 0) and has made no model call and no branch. A source whose freshness is unknown, or a status that cannot be read, counts as needing a refresh.
-2. **`update-sources`**: updates each source that is behind, marks the entries of changed files stale, adds and removes entries, records the new commits, drops the entries whose files git says are gone, and renders `index.md`. A failure here ends the run (exit 1) with nothing changed.
-3. **`scan`**, a fan-out over the stale files of the index (entries left stale by an earlier run too), in batches of at most 30 files; each run writes the metadata of its files and changes nothing.
-4. **`index`**: merges the scans into `index.yaml`; an entry whose batch failed, or whose file no scan returned, is skipped with the reason and stays stale.
-5. **`concepts`**: assigns existing concepts to the enriched entries that have none; it writes no concept.
-6. **`verify`**: checks a sample of the new summaries against their files and replaces one that does not describe its file.
-7. **`embed`**: defers while entries are stale, never downloads a model, embeds again when the model is ready, and reports the lag.
-8. **`publish`**: commits the corpus's changes on `<BRANCH_PREFIX>-<date>` with the report as the message (it stops when a file outside the corpus is staged); with `PUSH`, pushes, opens the pull request and closes the ones it supersedes; then returns to `BASE_BRANCH`.
-
-No node edits `index.yaml`, `config.yaml` or `graph.yaml` by text: every change goes through a tool of the package. A failure of `scan`, `index`, `concepts`, `verify` or `embed` still reaches `publish`, which publishes the corpus as it stands and lists every node's problems in the body; the run then exits 0 when `publish` succeeds. A source of a kind other than git is reported and not refreshed (`skipped-manual`); a source that fails is reported `failed` with the reason and its entries stay as they were; the other sources go on.
-
-`prepare_base`'s git commands have a timeout of 300 s, the freshness check's `git ls-remote` one of 60 s, and every `git` and `gh` command of `publish` one of 120 s. The pull request's body lists at most 50 ids in each list, then `and N more`.
-
-The run is recorded in `runs/refresh-<UTC start>-<six hex digits>/record.json` (`--run-dir` chooses another directory; `runs/` is not committed): the steps and their outcomes, the facts every node gave, the summary (`publish`'s outputs: `branch`, `pr_url`, `superseded_prs`), the failed node runs with their reasons, and the model calls and tokens of each node run. A node that fails through the harness (no exit, an invalid output) leaves no outputs: its reason is in the record's `failures`, not in the pull request. The exit code is 0 when the sequence ends `done` or `stopped`, 1 when it ends `failed` (a check, `update-sources` or `publish` failed), 2 when the run could not start. `--resume <run id>` continues a run that crashed, from the steps that finished.
-
-## The other sequences
-
-Each runs the same way, `uv run agent-core job instance.yaml <sequence> --settings config/<corpus>.yaml`, and is recorded in `runs/<sequence>-…/`:
-
-- **`status`**: one node, `status`, reports each source's freshness, the index format, the stale entries, the embeddings' lag and `refresh_needed` in the record's facts, and ends `current` or `stale` (exit 0 either way). It fetches nothing and changes nothing.
-- **`enrich`**: the refresh without `update-sources`. Its checks are `prepare_base`, `index_is_v2` (a v1 corpus goes on to `migrate`), `corpus_ready` and `stale_entries` (with nothing stale the run ends `Nothing is stale.`, exit 0, no model call). `checkout-sources` then checks out each git source at the commit the index was built at, and the scans, `index`, `concepts`, `verify`, `embed` and `publish` follow; the pull request is titled `corpus: enrich <date>`.
-- **`migrate`**: converts a v1 corpus (`index.md`, `index-*.md`) to `index.yaml`. Its checks refuse a corpus that has no v1 index or has a source of a kind other than git (exit 1, no model call). `checkout-sources` checks out each source at its `last_commit_sha`; one that cannot be checked out ends the run (exit 1) with nothing written. `migrate` writes every entry stale with its v1 title and summary, copies the package's `render-index.sh` into the corpus and renders; an id of the original `.md` files that is neither rendered nor skipped, or a render that fails, puts every file back and ends the run (exit 1). The scans then write each entry's metadata, and `publish` opens the pull request on the corpus's own repository, titled `corpus: migrate <date>`. A v1 corpus is its own repository: its settings file has `CORPUS_PATH` at that repository's root, its own `CORPUS_REPO`, and `BRANCH_PREFIX: automated/corpus-refresh-<name>`.
-- **`graph-validate`**: checks `graph.yaml` against the graph rules (errors: the schema, a concept an entry names that the graph lacks, a relationship whose end is not a concept; warnings: a concept no entry names, a relationship type or origin outside the vocabulary of `graph.md`). It ends `valid` or `invalid` (exit 0 either way), with the issues in the record's facts; a corpus with no `graph.yaml` fails the check (exit 1).
-
-## Add a corpus
-
-Write one settings file, `config/<corpus>.yaml`, with `CORPUS_PATH`, `CORPUS_REPO` and `BRANCH_PREFIX`; nothing else changes. The corpus must have a `config.yaml` with its sources, and either a v2 `index.yaml` with its own `render-index.sh`, as the corpora of `hiivmind-corpus-data` do, or a v1 index, which `migrate` converts. The same node files serve every corpus: nothing in them names one.
-
-## Add a source kind
-
-Git is the only kind handled. The seam is `src/hiivmind_corpus/sources/__init__.py` in `hiivmind-corpus-lib`. A kind is:
-
-1. a module in that package with a class that has `freshness(source, corpus)`, returning `("current" | "behind" | "unknown", error or None)` without cloning or changing anything, as `sources/git.py` does;
-2. a line in `SOURCE_KINDS`, keyed by the source's `type`;
-3. its reference document `documents/sources/<type>.md` in the package, which `update-sources` reads through `reference`. Step 7 of the node sends every type but `git` to `skipped-manual`, and its Phase 3 describes how git gets its new commit; for a new kind that step lets the type through and the phase says, from the kind's document, how its working copy is updated, and `apply_source_update` learns how its changed files are found;
-4. the server it needs, declared under `servers:` in `instance.yaml` (a web kind needs a fetch server; none is declared today).
-
-The sequence, the other tools and the contracts of the nodes do not change.
-
-## Run it on a schedule
-
-The core has no scheduler (JOB-11); whatever the host provides (cron, a systemd timer, CI) starts the job. The line is:
+## Run a sequence
 
 ```bash
-cd <instance dir> && uv run agent-core job instance.yaml refresh --settings config/<corpus>.yaml --param PUSH=true
+uv sync
+uv run agent-core job instance.yaml <sequence> --settings config/<corpus>.yaml [--param KEY=VALUE ...]
 ```
 
-For a repository of several corpora, the scheduler runs that line once for each settings file, one after another, not at the same time: the corpora share one working tree, and a run starts by checking that it is clean and by checking out the base branch.
+- `--param` beats the environment (`HIIVMIND_CORPUS_<KEY>`), which beats the settings files.
+- `config/base.yaml` sets `PUSH: false`; a run pushes only with `--param PUSH=true`.
+- `CORPUS_PATH` is the corpus's directory, `CORPUS_REPO` is `owner/name` for the pull request, `BRANCH_PREFIX` names the branch, `BASE_BRANCH` defaults to `main`. Run on a scratch clone with `--param CORPUS_PATH=... --param PUSH=false`.
+- A run is recorded in `runs/<sequence>-<UTC start>-<id>/record.json`; `--resume <run id>` continues a crashed run.
+- Exit code: 0 when the sequence ends `done` or `stopped`, 1 when it ends `failed`, 2 when it could not start.
+
+Needs `git`, `yq` (the Go one), `npx`, `gh` when `PUSH` is true, and the model's API key in the environment.
 
 ## Tests
 
 ```bash
-uv run pytest -q                                          # no model: the scripted backend; a few minutes
-set -a && . <file holding ANTHROPIC_API_KEY> && set +a
-AGENT_CORE_LANGGRAPH_MODEL=claude-haiku-5-5 uv run pytest tests/model -m model -q    # calls a model; costs money
+uv run pytest -q                  # no model: the scripted backend
+uv run pytest tests/model -m model -q   # calls a model; costs money
 ```
 
-The suite builds a corpus and its upstream in `test-tmp/` and uses a stand-in `gh`: no test touches a real corpus repository or opens a pull request. The tests marked `model` run the `refresh` sequence with the LangGraph backend on those fixture corpora (`PUSH=false`, apart from the one that pushes to a local bare repository and opens its pull request on the stand-in) and keep each run's directory under `runs/model-tests/<date>/<model>/<test>/`. Develop on `claude-haiku-5-5`; the pass bar is one pass on `claude-sonnet-5-5`.
+`tests/test_language.py` checks that no file of the tree calls a node anything but a node, and that no procedure names an SDK.
 
-## Acceptance runs
+## v0 runs
 
 Run on 2026-11-15 (local time; the run records' UTC times are 2026-11-14). Two passes: the first, 13:13 to 13:20 UTC, with commit `0ecf951`; the second, 13:33 to 13:40 UTC, after `b53deb0`, which made `apply_scan` keep the layout of `index.yaml`. Nothing was pushed and no pull request was opened.
 
