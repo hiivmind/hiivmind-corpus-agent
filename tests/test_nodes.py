@@ -4,45 +4,28 @@ import re
 from datetime import datetime, timezone
 
 import yaml
-from agent_core.backends.scripted import ScriptedBackend
-from agent_core.core.job_runner import open_run
-
 from tests.helpers import ROOT
 
 
-class KeepingInstructions:
-    """A scripted backend that keeps the instructions of the brief it was given: the filled procedure."""
-
-    def __init__(self, script: list):
-        self._inner = ScriptedBackend(script=script)
-        self.instructions: str | None = None
-
-    async def drive(self, brief, controller):
-        self.instructions = brief.instructions
-        return await self._inner.drive(brief, controller)
-
-
-async def filled_procedure(corpus, node: str, inputs: dict) -> str:
+async def filled_procedure(instructions, node: str, inputs: dict) -> str:
     """The procedure of a node as the model reads it for these inputs: the instructions after the line that names the node.
 
     (The rules before it carry examples such as "Sources to update: not given", so only this part says what the node was given.)
     """
-    backend = KeepingInstructions(["I have read the procedure."])
-    async with open_run(ROOT / "instance.yaml", settings_files=[corpus.settings_file], run_dir=corpus.next_dir("run")) as opened:
-        await opened.run_node(node, inputs, driver=backend)
-    _, _, procedure = backend.instructions.partition(f"# Procedure of the node that is running: `{node}`")
+    sent = await instructions(node, inputs)
+    _, _, procedure = sent.partition(f"# Procedure of the node that is running: `{node}`")
     assert procedure, "the instructions have no procedure line"
     return procedure
 
 
 def test_scan_declares_its_contract(instance):
     node = instance.nodes["scan"]
-    assert set(node.inputs) == {"batch"}
-    assert node.outputs["entries"]["type"] == "array"
-    assert node.outputs["entries"]["items"]["required"] == [
+    assert set(node.contract.inputs) == {"batch"}
+    assert node.output_schemas["entries"]["type"] == "array"
+    assert node.output_schemas["entries"]["items"]["required"] == [
         "path", "title", "summary", "tags", "keywords", "category", "content_type", "size", "grep_hint", "headings",
     ]
-    assert node.exits == ("done", "failed") and node.context == "none"
+    assert node.contract.exits == ("done", "failed") and node.context == "none"
     assert node.allowed_tools == ("files__read_text_file", "files__list_directory", "shell__run", "reference")
 
 
@@ -64,8 +47,8 @@ async def test_scan_sends_back_a_category_outside_the_enum(corpus_stale, run):
     assert any("category" in e and "essay" in e for e in result["errors"])
 
 
-async def test_scan_takes_a_batch(corpus_stale):
-    text = await filled_procedure(corpus_stale, "scan", {"batch": {"source": "docs", "files": ["a.md", "b.md"]}})
+async def test_scan_takes_a_batch(corpus_stale, instructions):
+    text = await filled_procedure(instructions, "scan", {"batch": {"source": "docs", "files": ["a.md", "b.md"]}})
     assert "'source': 'docs'" in text and "'files': ['a.md', 'b.md']" in text and "{{" not in text
 
 
@@ -73,13 +56,13 @@ async def test_scan_takes_a_batch(corpus_stale):
 
 def test_update_sources_declares_its_contract(instance):
     node = instance.nodes["update-sources"]
-    assert set(node.inputs) == {"sources"}
-    assert set(node.outputs) == {"sources", "index_changes", "removed_ids", "update_errors"}
-    source = node.outputs["sources"]["items"]
+    assert set(node.contract.inputs) == {"sources"}
+    assert set(node.contract.outputs) == {"sources", "index_changes", "removed_ids", "update_errors"}
+    source = node.output_schemas["sources"]["items"]
     assert source["required"] == ["id", "type", "status", "old_sha", "new_sha", "files_changed"]
     assert source["properties"]["status"]["enum"] == ["current", "updated", "failed", "skipped-manual"]
-    assert node.outputs["index_changes"]["required"] == ["added", "modified", "removed", "stale_entries"]
-    assert node.exits == ("updated", "current", "declined", "failed") and node.context == "none"
+    assert node.output_schemas["index_changes"]["required"] == ["added", "modified", "removed", "stale_entries"]
+    assert node.contract.exits == ("updated", "current", "declined", "failed") and node.context == "none"
 
 
 def test_update_sources_edits_no_yaml_by_text(instance):          # CRP-4
@@ -103,16 +86,16 @@ async def test_update_sources_applies_a_change_through_the_tool(corpus, run):
     assert "docs:d.md" in rendered and "docs:c.md" not in rendered
 
 
-async def test_update_sources_procedure_is_filled_with_the_corpus_and_the_sources(corpus):
-    text = await filled_procedure(corpus, "update-sources", {"sources": "all"})
+async def test_update_sources_procedure_is_filled_with_the_corpus_and_the_sources(corpus, instructions):
+    text = await filled_procedure(instructions, "update-sources", {"sources": "all"})
     assert f"Corpus: {corpus.path}." in text and "Sources to update: all." in text and "{{" not in text
     assert f"cd {corpus.path} && bash ./render-index.sh index.yaml" in text   # the fragment, included and filled
 
 
-async def test_update_sources_keeps_the_recipe_for_git_sources(corpus):
-    """The steps for a git source keep the skill's constraints in its words (the task's git constraints), the fragment's
+async def test_update_sources_keeps_the_recipe_for_git_sources(corpus, instructions):
+    """The steps for a git source keep the node's constraints in its words (the task's git constraints), the fragment's
     included."""
-    text = await filled_procedure(corpus, "update-sources", {"sources": "all"})
+    text = await filled_procedure(instructions, "update-sources", {"sources": "all"})
     assert "git clone --filter=blob:none --sparse --depth=50" in text and "/.source/" in text
     assert "sparse-checkout set --skip-checks '<docs_root>'" in text   # atproto's docs_root is `src/app/[locale]`
     assert 0 < text.index("--shallow-since") < text.index("--unshallow")
@@ -122,15 +105,15 @@ async def test_update_sources_keeps_the_recipe_for_git_sources(corpus):
 
 def test_update_sources_loops_over_sources_by_their_checkout_not_their_status():   # final review 1
     """A source is `updated` only after `apply_source_update` (step 14), so Phase 3's loop cannot take "updated" as done."""
-    steps = {int(n): line for n, line in re.findall(r"(?m)^(\d+)\. (.*)$", (ROOT / "skills" / "update-sources" / "SKILL.md").read_text())}
+    steps = {int(n): line for n, line in re.findall(r"(?m)^(\d+)\. (.*)$", (ROOT / "nodes" / "update-sources.md").read_text())}
     assert "checked out" in steps[11] and "updated" not in steps[11]
-    assert "checked out" in steps[12] and "is now checked out" in (ROOT / "fragments" / "sources" / "git.md").read_text()
+    assert "checked out" in steps[12] and "is now checked out" in (ROOT / "includes" / "sources" / "git.md").read_text()
     assert "checked out" in steps[13] and "updated" not in steps[13]
 
 
 def test_a_node_that_fails_on_purpose_names_the_error_in_its_error_list():   # final review 2: `reason` is not a declared output
     for node, errors in (("index", "index_errors"), ("concepts", "concept_errors")):
-        text = (ROOT / "skills" / node / "SKILL.md").read_text()
+        text = (ROOT / "nodes" / f"{node}.md").read_text()
         for line in text.splitlines():
             if "EXIT `failed`" in line and not line.startswith("|"):
                 assert f"`{errors}`" in line, f"{node}: {line}"
@@ -140,36 +123,36 @@ def test_a_node_that_fails_on_purpose_names_the_error_in_its_error_list():   # f
 
 def test_checkout_sources_declares_its_contract(instance):
     node = instance.nodes["checkout-sources"]
-    assert set(node.inputs) == set() and set(node.outputs) == {"checkouts", "checkout_errors"}
-    assert node.outputs["checkouts"]["items"]["required"] == ["id", "status"]
-    assert node.outputs["checkouts"]["items"]["properties"]["status"]["enum"] == ["checked-out", "failed"]
-    assert node.exits == ("done", "failed") and node.context == "none"
+    assert set(node.contract.inputs) == set() and set(node.contract.outputs) == {"checkouts", "checkout_errors"}
+    assert node.output_schemas["checkouts"]["items"]["required"] == ["id", "status"]
+    assert node.output_schemas["checkouts"]["items"]["properties"]["status"]["enum"] == ["checked-out", "failed"]
+    assert node.contract.exits == ("done", "failed") and node.context == "none"
     assert node.allowed_tools == ("shell__run", "files__read_text_file", "reference")
 
 
 def test_status_declares_its_contract(instance):
     node = instance.nodes["status"]
-    assert set(node.inputs) == set()
-    assert set(node.outputs) == {"sources", "index_format", "stale_count", "embeddings_lag", "refresh_needed", "status_errors"}
-    assert node.exits == ("current", "stale", "failed") and node.allowed_tools == ("corpus_status",) and node.context == "none"
+    assert set(node.contract.inputs) == set()
+    assert set(node.contract.outputs) == {"sources", "index_format", "stale_count", "embeddings_lag", "refresh_needed", "status_errors"}
+    assert node.contract.exits == ("current", "stale", "failed") and node.allowed_tools == ("corpus_status",) and node.context == "none"
 
 
 def test_migrate_declares_its_contract(instance):
     node = instance.nodes["migrate"]
-    assert set(node.inputs) == set()
-    assert set(node.outputs) == {"migrated", "migrate_skipped", "strategy", "sections", "migrate_errors"}
-    assert node.exits == ("migrated", "failed") and node.allowed_tools == ("migrate_index",) and node.context == "none"
+    assert set(node.contract.inputs) == set()
+    assert set(node.contract.outputs) == {"migrated", "migrate_skipped", "strategy", "sections", "migrate_errors"}
+    assert node.contract.exits == ("migrated", "failed") and node.allowed_tools == ("migrate_index",) and node.context == "none"
 
 
 def test_graph_validate_declares_its_contract(instance):
     node = instance.nodes["graph-validate"]
-    assert set(node.inputs) == set() and set(node.outputs) == {"concepts", "relationships", "issues", "valid"}
-    assert node.exits == ("valid", "invalid", "failed") and node.allowed_tools == ("validate_graph",) and node.context == "none"
+    assert set(node.contract.inputs) == set() and set(node.contract.outputs) == {"concepts", "relationships", "issues", "valid"}
+    assert node.contract.exits == ("valid", "invalid", "failed") and node.allowed_tools == ("validate_graph",) and node.context == "none"
 
 
-async def test_update_sources_and_checkout_sources_include_the_git_fragment(corpus):
+async def test_update_sources_and_checkout_sources_include_the_git_fragment(corpus, instructions):
     for node, inputs in (("update-sources", {"sources": "all"}), ("checkout-sources", {})):
-        text = await filled_procedure(corpus, node, inputs)
+        text = await filled_procedure(instructions, node, inputs)
         assert "git clone --filter=blob:none --sparse --depth=50" in text and "{{" not in text, node
         assert "checkout -q -B <branch> <commit>" in text and "--unshallow" in text, node
 
@@ -219,9 +202,9 @@ async def test_graph_validate_records_the_issues(corpus, run):
 
 def test_index_declares_its_contract(instance):
     node = instance.nodes["index"]
-    assert set(node.inputs) == {"scans", "scans_failures"}
-    assert set(node.outputs) == {"enriched_ids", "skipped_entries", "index_errors"}
-    assert node.exits == ("done", "failed") and node.allowed_tools == ("merge_scans", "shell__run")
+    assert set(node.contract.inputs) == {"scans", "scans_failures"}
+    assert set(node.contract.outputs) == {"enriched_ids", "skipped_entries", "index_errors"}
+    assert node.contract.exits == ("done", "failed") and node.allowed_tools == ("merge_scans", "shell__run")
 
 
 async def test_index_merges_through_merge_scans_and_renders(corpus, run):
@@ -234,8 +217,8 @@ async def test_index_merges_through_merge_scans_and_renders(corpus, run):
     assert "The file d.md, added in the second commit." in (corpus.path / "index.md").read_text()
 
 
-async def test_the_index_procedure_shows_the_model_no_scan(corpus):
-    text = await filled_procedure(corpus, "index", {"scans": [{"entries": [{"path": "secret-path.md"}]}], "scans_failures": []})
+async def test_the_index_procedure_shows_the_model_no_scan(corpus, instructions):
+    text = await filled_procedure(instructions, "index", {"scans": [{"entries": [{"path": "secret-path.md"}]}], "scans_failures": []})
     assert "secret-path.md" not in text   # CRP-5: the scans reach merge_scans as facts only
 
 
@@ -243,10 +226,10 @@ async def test_the_index_procedure_shows_the_model_no_scan(corpus):
 
 def test_concepts_declares_its_contract(instance):
     node = instance.nodes["concepts"]
-    assert set(node.inputs) == {"enriched_ids"}
-    assert set(node.outputs) == {"concepts_assigned", "new_concept_candidates", "concept_errors"}
-    assert node.outputs["new_concept_candidates"]["items"]["required"] == ["label", "evidence"]
-    assert node.exits == ("done", "failed") and "files__edit_file" not in node.allowed_tools and "set_concepts" in node.allowed_tools
+    assert set(node.contract.inputs) == {"enriched_ids"}
+    assert set(node.contract.outputs) == {"concepts_assigned", "new_concept_candidates", "concept_errors"}
+    assert node.output_schemas["new_concept_candidates"]["items"]["required"] == ["label", "evidence"]
+    assert node.contract.exits == ("done", "failed") and "files__edit_file" not in node.allowed_tools and "set_concepts" in node.allowed_tools
 
 
 async def test_concepts_writes_through_set_concepts(corpus_stale, run):
@@ -259,16 +242,16 @@ async def test_concepts_writes_through_set_concepts(corpus_stale, run):
 
 
 def test_concepts_keeps_the_matching_rules():
-    text = (ROOT / "skills" / "concepts" / "SKILL.md").read_text()
+    text = (ROOT / "nodes" / "concepts.md").read_text()
     assert "Do not write them to `graph.yaml`" in text and "at least two tag overlaps" in text
     assert "directory groups, one for each directory" in text and "directory `.`" in text
 
 
 def test_verify_declares_its_contract(instance):
     node = instance.nodes["verify"]
-    assert set(node.inputs) == {"enriched_ids"} and set(node.outputs) == {"verification", "verify_errors"}
-    assert node.outputs["verification"]["required"] == ["sampled", "failed", "drift_entries"]
-    assert node.exits == ("done", "failed") and {"verify_previews", "set_summary"} <= set(node.allowed_tools)
+    assert set(node.contract.inputs) == {"enriched_ids"} and set(node.contract.outputs) == {"verification", "verify_errors"}
+    assert node.output_schemas["verification"]["required"] == ["sampled", "failed", "drift_entries"]
+    assert node.contract.exits == ("done", "failed") and {"verify_previews", "set_summary"} <= set(node.allowed_tools)
 
 
 async def test_verify_replaces_a_drifting_summary_through_set_summary(corpus_stale, run):
@@ -279,14 +262,14 @@ async def test_verify_replaces_a_drifting_summary_through_set_summary(corpus_sta
 
 
 def test_verify_keeps_the_sample_of_ten():
-    assert "Take the first ten target entries" in (ROOT / "skills" / "verify" / "SKILL.md").read_text()
+    assert "Take the first ten target entries" in (ROOT / "nodes" / "verify.md").read_text()
 
 
 def test_embed_declares_its_contract(instance):
     node = instance.nodes["embed"]
-    assert set(node.inputs) == set() and set(node.outputs) == {"embeddings", "embeddings_lag", "embed_errors"}
-    assert node.outputs["embeddings"]["enum"] == ["updated", "skipped", "no-model", "not-installed", "deferred"]
-    assert node.exits == ("done", "deferred", "failed")
+    assert set(node.contract.inputs) == set() and set(node.contract.outputs) == {"embeddings", "embeddings_lag", "embed_errors"}
+    assert node.output_schemas["embeddings"]["enum"] == ["updated", "skipped", "no-model", "not-installed", "deferred"]
+    assert node.contract.exits == ("done", "deferred", "failed")
     assert {"embeddings_status", "stale_entries", "embed", "embeddings_lag"} <= set(node.allowed_tools)
 
 
@@ -302,7 +285,7 @@ async def test_embed_defers_while_entries_are_stale(corpus_stale, run):
 
 
 def test_embed_with_an_unexpected_detect_output_is_skipped_and_says_so():   # design review A8
-    text = (ROOT / "skills" / "embed" / "SKILL.md").read_text()
+    text = (ROOT / "nodes" / "embed.md").read_text()
     assert "anything else, or nothing" in text and "`detect.py printed <output>`" in text and "Never download the model" in text
     assert text.index("`stale_entries`") < text.index("CALL `embed`")   # stale entries are never embedded
 
@@ -310,6 +293,6 @@ def test_embed_with_an_unexpected_detect_output_is_skipped_and_says_so():   # de
 # --- every node -------------------------------------------------------------------------------------------------------
 
 def test_no_node_loads_a_reference_file():
-    for skill in sorted((ROOT / "skills").glob("*/SKILL.md")):
-        text = skill.read_text()
-        assert "reference/" not in text and "scripts/" not in text and "CALL `load`" not in text, skill
+    for node in sorted((ROOT / "nodes").glob("*.md")):
+        text = node.read_text()
+        assert "reference/" not in text and "scripts/" not in text and "CALL `load`" not in text, node

@@ -1,16 +1,12 @@
-"""The corpus fixtures (the `Corpus` of the package's `corpus_fixture`), and `run` and `job` for the nodes and the sequence."""
+"""The corpus fixtures (the `Corpus` of the package's `corpus_fixture`), and `run` and `job` for the nodes and the sequence, on the facade and the scripted backend."""
 
-import json
-import os
-import subprocess
-import sys
 from datetime import date
 
 import pytest
 
-from agent_core.backends.scripted import ScriptedBackend
+import agent_core
+from agent_core.contracts.events import ModelRequested
 from agent_core.core.instance import load_instance
-from agent_core.core.job_runner import open_run
 from agent_core.core.registry import provider
 from agent_core.core.settings import load_settings
 
@@ -105,35 +101,52 @@ def load(instance):
     return load
 
 
+def _scripted(monkeypatch, corpus: Corpus, case: str | None, **tokens: str) -> None:
+    """The environment of a scripted run: the stand-in `gh`, and the scripts of `case` as the backend's `SCRIPTS` setting."""
+    for name, value in {**corpus.environment(), "AGENT_CORE_SCRIPTED_SCRIPTS": str(corpus.scripts(case, **tokens))}.items():
+        monkeypatch.setenv(name, value)
+
+
+def _open(corpus: Corpus, params: dict | None = None):
+    return agent_core.open(
+        INSTANCE_YAML, backend="scripted", settings=[corpus.settings_file], params=params, runs=corpus.base / "runs",
+    )
+
+
 @pytest.fixture
-def run(_current):
+def run(_current, monkeypatch):
     """`await run(node, inputs, case=None, **tokens)`: one node of the instance, driven by `tests/scripts/<case or "ok">/<node>.json`
-    filled with `tokens` too."""
+    filled with `tokens` too. A dict: `outcome` (the exit), `outputs`, `reason` and the harness's `detail` (`errors`, ...)."""
     async def run(node: str, inputs: dict, case: str | None = None, **tokens: str) -> dict:
-        corpus: Corpus = _current["corpus"]
-        script = json.loads((corpus.scripts(case, **tokens) / f"{node}.json").read_text())
-        run_dir = corpus.next_dir("run")
-        async with open_run(INSTANCE_YAML, settings_files=[corpus.settings_file], run_dir=run_dir) as opened:
-            return await opened.run_node(node, inputs, driver=ScriptedBackend(script=script))
+        _scripted(monkeypatch, _current["corpus"], case, **tokens)
+        async with _open(_current["corpus"]) as harness:
+            outcome = await harness.nodes.run(node, inputs)
+        return {"outcome": outcome.exit, "outputs": outcome.outputs, "reason": outcome.reason, **outcome.detail}
     return run
 
 
 @pytest.fixture
-def job(_current):
-    """`job(case="ok", resume=None, *, sequence="refresh")`: the sequence in a subprocess; `(exit code, standard output, run
-    record or None)`. Every run of a test keeps its directory beside the others, so one journal holds them all and `resume`
-    (a run id) finds the run it names."""
-    def job(case: str = "ok", resume: str | None = None, *, sequence: str = "refresh"):
+def instructions(_current, monkeypatch):
+    """`await instructions(node, inputs)`: the instructions the scripted backend was sent for the node: its filled procedure."""
+    async def instructions(node: str, inputs: dict) -> str:
+        _scripted(monkeypatch, _current["corpus"], None)
+        async with _open(_current["corpus"]) as harness:
+            await harness.nodes.run(node, inputs)
+            sent = [e for e in harness.events.record() if isinstance(e, ModelRequested)]
+        return next(part.text for part in sent[0].parts if part.kind == "instructions")
+    return instructions
+
+
+@pytest.fixture
+def job(_current, monkeypatch):
+    """`await job(case="ok", resume=None, *, sequence="refresh", params=None)`: the sequence on the facade, the `SequenceResult`.
+    Every run of a test keeps its directory in one `runs/`, so one journal holds them all and `resume` (a run id) finds the
+    run it names."""
+    async def job(case: str = "ok", resume: str | None = None, *, sequence: str = "refresh", params: dict | None = None):
         corpus: Corpus = _current["corpus"]
-        run_dir = corpus.next_dir("run")
-        command = [
-            sys.executable, "-m", "agent_core.core.cli", "job", str(INSTANCE_YAML), sequence,
-            "--settings", str(corpus.settings_file), "--backend", "scripted", "--run-dir", str(run_dir),
-        ]
-        if resume:
-            command += ["--resume", resume]
-        environment = {**os.environ, **corpus.environment(), "AGENT_CORE_SCRIPTED_SCRIPTS": str(corpus.scripts(case))}
-        r = subprocess.run(command, cwd=ROOT, env=environment, capture_output=True, text=True, stdin=subprocess.DEVNULL)
-        record = run_dir / "record.json"
-        return r.returncode, r.stdout, json.loads(record.read_text()) if record.exists() else None
+        _scripted(monkeypatch, corpus, case)
+        async with _open(corpus, params) as harness:
+            if resume:
+                return await harness.sequences.resume(resume)
+            return await harness.sequences.run(sequence, {})
     return job

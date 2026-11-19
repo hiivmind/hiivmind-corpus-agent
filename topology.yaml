@@ -1,15 +1,15 @@
 nodes:
-  - {name: update-sources, path: skills/update-sources}
-  - {name: scan, path: skills/scan}
-  - {name: index, path: skills/index}
-  - {name: concepts, path: skills/concepts}
-  - {name: verify, path: skills/verify}
-  - {name: embed, path: skills/embed}
-  - {name: publish, path: skills/publish}
-  - {name: checkout-sources, path: skills/checkout-sources}
-  - {name: status, path: skills/status}
-  - {name: migrate, path: skills/migrate}
-  - {name: graph-validate, path: skills/graph-validate}
+  - {name: update-sources, path: nodes/update-sources.md}
+  - {name: scan, path: nodes/scan.md}
+  - {name: index, path: nodes/index.md}
+  - {name: concepts, path: nodes/concepts.md}
+  - {name: verify, path: nodes/verify.md}
+  - {name: embed, path: nodes/embed.md}
+  - {name: publish, path: nodes/publish.md}
+  - {name: checkout-sources, path: nodes/checkout-sources.md}
+  - {name: status, path: nodes/status.md}
+  - {name: migrate, path: nodes/migrate.md}
+  - {name: graph-validate, path: nodes/graph-validate.md}
 exits:
   done: route
   declined: route

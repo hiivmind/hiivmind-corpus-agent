@@ -3,8 +3,8 @@
 
 from types import SimpleNamespace
 
-from agent_core.core.state import StateView
-from agent_core.tools.function import FunctionSource
+from agent_core.core.checks import StateView
+from agent_core.core.functions import import_declared
 
 from tests.helpers import ROOT
 
@@ -25,19 +25,35 @@ def scanned(path: str) -> dict:
     }
 
 
-def tools(instance, settings) -> FunctionSource:
-    return FunctionSource(instance.functions, settings, ROOT)
+class Tools:
+    """The instance's declared functions, called as the harness calls them: `settings` and `state` filled, the model's arguments given."""
+
+    def __init__(self, instance, settings):
+        self.settings = settings
+        self.by_name = {tool.name: tool for tool in import_declared(ROOT, instance.functions)}
+
+    def specs(self):
+        return [tool.spec for tool in self.by_name.values()]
+
+    async def call(self, name: str, arguments: dict, state: dict):
+        tool = self.by_name[name]
+        filled = {"settings": self.settings, "state": state}
+        return tool.fn(**arguments, **{key: filled[key] for key in tool.filled})
+
+
+def tools(instance, settings) -> Tools:
+    return Tools(instance, settings)
 
 
 async def test_each_declared_tool_is_offered_with_the_arguments_of_the_design(instance, corpus):
-    specs = {spec.name: spec for spec in await tools(instance, corpus.settings).tools()}
+    specs = {spec.name: spec for spec in tools(instance, corpus.settings).specs()}
     assert {name: list(spec.schema["properties"]) for name, spec in specs.items()} == SHOWN
     assert specs["reference"].schema.get("required") == ["doc"]
     assert all(spec.description != spec.name for spec in specs.values())   # each says what it does
 
 
 async def test_merge_scans_shows_the_model_no_arguments(instance, corpus):
-    [spec] = [s for s in await tools(instance, corpus.settings).tools() if s.name == "merge_scans"]
+    [spec] = [s for s in tools(instance, corpus.settings).specs() if s.name == "merge_scans"]
     assert spec.schema["properties"] == {} and "required" not in spec.schema
 
 
