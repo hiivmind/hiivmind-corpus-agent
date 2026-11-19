@@ -115,6 +115,31 @@ async def test_after_a_merged_refresh_the_corpus_is_already_current(corpus, job,
     assert r.end == "done" and r.summary == "Already current." and names(r) == ["checks"]
 
 
+def count_checks(monkeypatch) -> list[str]:
+    """Wrap the check tools in the module the core's loader registers them from; the names called in this process go in the list."""
+    import functools
+
+    from agent_core.contracts.loading import load_module
+
+    checked: list[str] = []
+    module = load_module(ROOT, "tools.corpus")
+    for name in ("prepare_base", "refresh_needed"):
+        def wrap(original, name=name):
+            @functools.wraps(original)
+            def counted(*args, **kwargs):
+                checked.append(name)
+                return original(*args, **kwargs)
+            return counted
+        monkeypatch.setattr(module, name, wrap(getattr(module, name)))
+    return checked
+
+
+async def test_the_check_counter_sees_the_checks_run(corpus, job, monkeypatch):
+    checked = count_checks(monkeypatch)
+    r = await job()
+    assert r.end == "done" and {"prepare_base", "refresh_needed"} <= set(checked)
+
+
 async def test_a_run_crashed_in_verify_resumes_there(corpus, job, monkeypatch):               # Review Focus 5, example 8; re-cut
     """The `crash` script kills the process that runs the scripted `verify`, so the first run is a child process of this test;
     the resume is in this one, on the journal the child left. The scripted backend resumes by macro (the core's journal): the
@@ -134,12 +159,7 @@ async def test_a_run_crashed_in_verify_resumes_there(corpus, job, monkeypatch): 
         cwd=ROOT, capture_output=True, text=True, stdin=subprocess.DEVNULL,
     )
     assert child.returncode != 0 and not (corpus.base / "runs" / "crashed" / "record.json").exists(), child.stdout   # killed: no record
-    import importlib
-    corpus_tools = importlib.import_module("tools.corpus")
-    checked = []   # the checks' tools called in this process
-    for name in ("prepare_base", "refresh_needed"):
-        original = getattr(corpus_tools, name)
-        monkeypatch.setattr(corpus_tools, name, lambda *a, _o=original, _n=name, **k: (checked.append(_n), _o(*a, **k))[1])
+    checked = count_checks(monkeypatch)
     r = await job(resume="crashed")
     assert checked == []   # `checks` was not run again
     ran = [note.node for note in r.record.notes]   # the nodes that started in this process
