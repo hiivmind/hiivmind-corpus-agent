@@ -58,12 +58,12 @@ A concept ID is slugified from the label: lowercase, spaces replaced with hyphen
 
 ### Origin Types
 
-| Origin | Meaning | Refresh Behavior |
-|--------|---------|-----------------|
-| `wikilink` | Discovered from a `[[wikilink]]` or a markdown link | Updated automatically on refresh |
-| `tag` | Inferred from shared `#tag` co-occurrence | Updated automatically on refresh |
-| `frontmatter` | Inferred from frontmatter metadata | Updated automatically on refresh |
-| `manual` | Curated by a person | Preserved on refresh; never overwritten |
+| Origin | Meaning |
+|--------|---------|
+| `wikilink` | Discovered from a `[[wikilink]]` or a markdown link |
+| `tag` | Inferred from shared `#tag` co-occurrence |
+| `frontmatter` | Inferred from frontmatter metadata |
+| `manual` | Curated by a person |
 
 ### Validation Rules
 

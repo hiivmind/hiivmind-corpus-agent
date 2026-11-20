@@ -1,3 +1,5 @@
+   #### Sparse Checkout
+
    The working copy of a source lives in `.source/<id>/`, which is gitignored and stays between runs, so the clone is paid for once and later runs fetch and compare locally.
 
    For a large upstream repository, or whenever only `docs_root` matters, the clone is a sparse, blob-filtered one, as steps a to e below make it.

@@ -64,7 +64,7 @@ def test_freshness_keeps_only_the_write_time_check():
 
 def test_the_git_fragment_keeps_the_clone_recipe():
     text = _text("sources/git.md")
-    for kept in ("sparse-checkout set", "--skip-checks", "checkout -q -B <branch> <commit>"):
+    for kept in ("Sparse Checkout", "sparse-checkout set", "--skip-checks", "checkout -q -B <branch> <commit>"):
         assert kept in text, kept
     assert "Get Clone SHA" not in text
 
@@ -73,3 +73,11 @@ def test_the_render_include_and_the_documents_that_became_nothing_are_gone():
     assert not (INCLUDES / "render-index.md").exists()
     for name in ("index-updating.md", "paths.md", "sources/shared.md"):
         assert not (INCLUDES / name).exists(), name
+
+
+def test_includes_say_what_the_package_does():
+    graph, fields, fresh = _text("graph.md"), _text("index-fields.md"), _text("freshness.md")
+    assert "Refresh Behavior" not in graph and "automatically on refresh" not in graph
+    assert "Only `id` and `source` must be stored" in fields and "without its `{source}:` prefix" in fields
+    assert re.search(r"\| `path` \| string \| no", fields) and re.search(r"\| `summary` \| string \| no", fields)
+    assert "headings" not in fresh and "grep_hint" not in fresh and "`concepts`" in fresh
