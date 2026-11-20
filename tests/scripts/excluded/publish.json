@@ -7,7 +7,7 @@
   [["shell__run", {"command": "timeout 120 git -C @CORPUS@ rev-parse --show-prefix"}]],
   [["shell__run", {"command": "timeout 120 git -C @CORPUS@ diff --cached --name-only"}]],
   [["stale_entries", {}]],
-  [["files__write_file", {"path": "@CLONE@/../message.md", "content": "corpus: refresh @TODAY@\n\n## Sources\n\n- docs: 4 files changed\n\n## Excluded\n\n- Excluded by `build.skip_sections`: drafts/e.md\n"}]],
+  [["files__write_file", {"path": "@CLONE@/../message.md", "content": "corpus: refresh @TODAY@\n\n## Sources\n\n- docs: 4 files changed\n\n## Index\n\n- 1 added, 1 modified, 1 removed\n- Excluded by build.skip_sections: 1 (drafts/e.md)\n"}]],
   [["shell__run", {"command": "timeout 120 git -C @CORPUS@ commit -q -F @CLONE@/../message.md"}]],
   [["shell__run", {"command": "timeout 120 git -C @CORPUS@ checkout main"}]],
   [["exit", {"outcome": "committed", "outputs": {"branch": "automated/corpus-refresh-test-@TODAY@", "pr_url": null, "superseded_prs": []}}]]

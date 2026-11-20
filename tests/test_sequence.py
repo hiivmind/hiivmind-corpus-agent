@@ -35,9 +35,20 @@ def outcomes(result) -> dict[str, str]:
     return found
 
 
-async def test_nothing_new_ends_at_check_upstream(corpus, job):            # INS-17
+def assert_current_on_the_real_head(corpus, tool_results) -> None:
+    """The freshness the `current` script accepts: `corpus_status` was given the head `git ls-remote` really printed, and said no refresh is needed."""
+    [(_, remote)] = [(a, r) for a, r in tool_results("shell__run") if "ls-remote" in a["command"]]
+    head = (remote["stdout"] if isinstance(remote, dict) else remote).split()[0]
+    assert head == corpus.upstream_head
+    [(args, status)] = tool_results("corpus_status")
+    assert args["observed"] == [{"id": "docs", "head": head}]
+    assert status["refresh_needed"] is False and [s["freshness"] for s in status["sources"]] == ["current"]
+
+
+async def test_nothing_new_ends_at_check_upstream(corpus, job, tool_results):            # INS-17
     corpus.set_last_sha(corpus.upstream_head)
     r = await job("current")
+    assert_current_on_the_real_head(corpus, tool_results)
     assert r.end == "done" and r.record.end_state == "done"
     assert names(r) == ["prepare-base", "checks", "check-upstream"] and outcomes(r)["check-upstream"] == "current"
     assert r.summary == {"reason": "Already current."}
@@ -120,13 +131,17 @@ async def test_an_excluded_path_reaches_publication(corpus_drafts, job, sent):  
     committed = yaml.safe_load(corpus_drafts.git("show", f"{r.facts['branch']}:hiivmind-corpus-test/index.yaml"))["entries"]
     assert "drafts/e.md" not in [e["path"] for e in committed]
     assert not [e for e in r.facts["update_errors"] if "excluded-by-config" in e]
+    message = corpus_drafts.git("log", "-1", "--format=%B", r.facts["branch"])   # the commit the publish node wrote
+    index_section = message.split("## Index")[1].split("\n## ")[0]
+    assert "Excluded by build.skip_sections: 1" in index_section and "drafts/e.md" in index_section
 
 
-async def test_after_a_merged_refresh_the_corpus_is_already_current(corpus, job, today):     # Review Focus 3
+async def test_after_a_merged_refresh_the_corpus_is_already_current(corpus, job, tool_results):     # Review Focus 3
     r = await job()
     assert r.end == "done"
     corpus.git("push", "-q", "origin", f"{r.facts['branch']}:main")   # the pull request, merged on origin
     r = await job("current")
+    assert_current_on_the_real_head(corpus, tool_results)
     assert r.end == "done" and r.summary == {"reason": "Already current."} and names(r) == ["prepare-base", "checks", "check-upstream"]
 
 

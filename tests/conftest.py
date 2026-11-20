@@ -1,11 +1,12 @@
 """The corpus fixtures (the `Corpus` of `tests/corpus_fixture.py`), and `run` and `job` for the nodes and the sequence, on the facade and the scripted backend."""
 
+import json
 from datetime import date
 
 import pytest
 
 import agent_core
-from agent_core.contracts.events import ModelRequested
+from agent_core.contracts.events import ModelRequested, ToolReturned
 from agent_core.core.instance import load_instance
 from agent_core.core.registry import provider
 from agent_core.core.settings import load_settings
@@ -151,6 +152,7 @@ def job(_current, monkeypatch):
                 return await harness.sequences.run(sequence, {})
             finally:
                 sent: dict[str, list[str]] = {}
+                _current["tools"] = [event for event in harness.events.record() if isinstance(event, ToolReturned)]
                 for event in harness.events.record():
                     if isinstance(event, ModelRequested):
                         for part in event.parts:
@@ -166,3 +168,20 @@ def sent(_current):
     def sent(node: str) -> list[str]:
         return _current["sent"].get(node, [])
     return sent
+
+
+@pytest.fixture
+def tool_results(_current):
+    """`tool_results(name) -> list[(args, result)]`: each call of the tool in the last `job` of this test, with the result it returned
+    (the JSON of its first line when that is JSON, else its text; a tool that records outputs adds a trailer after a blank line)."""
+    def tool_results(name: str) -> list[tuple[dict, object]]:
+        found = []
+        for event in _current["tools"]:
+            if event.call.name == name:
+                try:
+                    result = json.loads(event.text.partition("\n\n(recorded by this call")[0])
+                except ValueError:
+                    result = event.text
+                found.append((event.call.args, result))
+        return found
+    return tool_results
