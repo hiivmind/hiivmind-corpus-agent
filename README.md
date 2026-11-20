@@ -236,3 +236,58 @@ AGENT_CORE_LANGGRAPH_MODEL=anthropic:claude-sonnet-5-5 uv run agent-core job ins
 - Model calls: 59 (checkout-sources 9, migrate 2, scan 7+5+6+5+3, index 3, concepts 2, verify 2, embed 3, publish 12). Tokens sent 1,423,809 (cache read 886,293, cache written 537,374).
 - Produced branch `automated/corpus-refresh-atproto-2026-11-19`; validated commit `140fb7c165c22bb8df1f1c135594983e30ef0364`.
 - Index check: `load_index` printed `2` (keys `meta`, `entries`; `entries` holds 129); `bash render-index.sh index.yaml` printed `Rendered ./index.md (129 entries)`, exit `0`, tree left clean.
+
+## Capabilities gate, 2026-11-20
+
+Stage 3 of the corpus-lib capabilities design (§10): `agent-core job` on LangGraph, `AGENT_CORE_LANGGRAPH_MODEL=anthropic:claude-sonnet-5-5`, `--no-ask`, `PUSH=false`, scratch clones only. Origins are local bare repos in `~/agent-core-scratch/capabilities/` (`data-origin.git`, branch `gate-stale` at `1a67fe0`; `atproto-origin.git`, branch `gate-v1` at `15e064f`, the parent of `32c014f`, the commit that added `index.yaml`); nothing reached GitHub, and no clone was edited by hand. The instance was at `89057dd` and `hiivmind-corpus-lib` (branch `capabilities`) at `d1ccabf`. Stage 1, `uv run pytest -q` in `hiivmind-corpus-lib`: 404 passed in 18 s. Stage 2, `uv run pytest -q` here: 136 passed, 4 model tests deselected, in 6 m 33 s. Every produced tree was checked in a worktree of the clone, under `~/agent-core-scratch/capabilities/`.
+
+Result: four runs, all ended `done` with exit 0, none failed, no fix was needed. Real `embed` is not in the gate: the instance installs the package without the `embeddings` extra, so `embed` ended `done` with `embeddings` `not-installed`, and where the corpus holds an `index-embeddings.lance/` the lag call's `ExtraMissing` is in the commit message under `## Errors`.
+
+The evidence collector (`~/agent-core-scratch/capabilities/collect.py`, not committed) does what the CLI does: it opens the harness on the instance, runs the sequence and writes `record.json`. Because the record keeps no model output, it also prints from `harness.events.record()` (a) the keys of the `outputs` of each `exit` call of each `update-sources` node run and (b) the text each `apply_source_update` and `drop_missing` call returned. `verify_tree.py`, beside it, loads each file of a produced tree and renders `index.md`.
+
+### `status` on Polars (clone `gate-stale` at `1a67fe0`)
+
+```bash
+AGENT_CORE_LANGGRAPH_MODEL=anthropic:claude-sonnet-5-5 uv run agent-core job instance.yaml status \
+  --settings config/polars.yaml --param CORPUS_PATH=$HOME/agent-core-scratch/capabilities/data/hiivmind-corpus-polars \
+  --param BASE_BRANCH=gate-stale --param PUSH=false --no-ask
+```
+
+- Run `status-20261120T042912Z-91fde8`; exit 0; `end_state` `done`; 11 s. Step: `status` `stale`.
+- Facts: `sources[0]` `polars` `freshness` `behind` (`last_commit_sha` `5eaa754`; `git ls-remote https://github.com/pola-rs/polars refs/heads/main` printed `e02c237a6b9055f23f33ae632b0490286a579e2e`), `index_format` `v2`, `stale_count` 36, `embeddings_lag` null, `refresh_needed` true, `status_errors` `embeddings lag not computed: install hiivmind-corpus-lib[embeddings]`.
+- Model calls: 4. Tokens sent 25,192 (cache read 18,461, cache written 6,721). The clone was unchanged.
+
+### `refresh` on Polars (clone `gate-stale` at `1a67fe0`)
+
+The same arguments with `refresh`, through the collector (`uv run python ~/agent-core-scratch/capabilities/collect.py job instance.yaml refresh …`).
+
+- Run `refresh-20261120T042944Z-4071d0`; exit 0; `end_state` `done`; 3 m.
+- Steps: `prepare-base` prepared; `checks` met; `check-upstream` behind; `update-sources` updated (`5eaa754` to `e02c237`, 29 files changed); `enrich-and-publish` committed (`scan[list]`, `scan[1]`, `scan`, `index`, `concepts`, `verify`, `embed`, `publish` committed). 28 entries enriched; no failures, update errors, index errors or scan failures.
+- Model calls: 46 (prepare-base 6, check-upstream 4, update-sources 12, scan 3, index 2, concepts 3, verify 2, embed 4, publish 10). Tokens sent 593,523 (cache read 380,342, cache written 213,071).
+- Produced branch `automated/corpus-refresh-polars-2026-11-20`; validated commit `c147562b7a6d8b9eb033888b892267b72a3aaeb9`. `git diff --stat 1a67fe0..c147562`: 3 files changed, 1,266 insertions, 745 deletions (`config.yaml` 12 lines, `index.md` 101, `index.yaml` 1,898). This is C2: the first write of a published `index.yaml` and `config.yaml` in canonical form.
+- (a) The `exit` call of `update-sources#3` had `outputs` keys `sources` and `update_errors`: none of `index_changes`, `removed_ids`, `excluded_paths`.
+- (b) `apply_source_update` returned `files_changed` 29, `added` 1, `modified` 22, `removed` 0, `removed_ids` empty, 23 `stale_entries`, `excluded` 0; `drop_missing` returned 33 `removed_ids`. The record's `facts.index_changes` (`added` 1, `modified` 22, `removed` 0, the same 23 `stale_entries`) equals what `apply_source_update` recorded; `facts.removed_ids` (33) equals what `drop_missing` returned and recorded; `facts.excluded_paths` is empty. The commit message holds `1 added, 22 modified, 0 removed`, `Removed 33 entries whose files are gone from the source:` with the same 33 ids, and `Enriched: 28 entries`.
+- Tree, in a worktree of the branch, in `hiivmind-corpus-polars`: `Config.loads(text).dumps() == text` for `config.yaml`, and `Index.loads(text).dumps() == text` for `index.yaml` (80 entries); `Corpus.open(".").render.texts()["index.md"]` equals `index.md`. The run did not write `graph.yaml` (a schema 2 graph holds no entry ids, so a refresh has nothing to remove from it); it is byte for byte the base commit's hand-written layout, so `Graph.loads(text).dumps() == text` is false for it, and it loads and its `dumps` is a fixed point. `render-index.sh` is still in the tree, as the base commit has it.
+
+### A second `refresh` on Polars, after the first commit is merged
+
+The first commit was merged on the scratch origin (`git -C data push origin automated/corpus-refresh-polars-2026-11-20:gate-stale`: `gate-stale` `1a67fe0` to `c147562`); the same command as the first `refresh`.
+
+- Run `refresh-20261120T043431Z-70f93f`; exit 0; `end_state` `done`; 23 s; `summary` `Already current.`
+- Steps: `prepare-base` prepared (the clone fast-forwarded to `c147562`); `checks` met; `check-upstream` current. Upstream was still `e02c237`. No branch and no commit; the clone stayed clean on `gate-stale`.
+- Model calls: 10 (prepare-base 6, check-upstream 4). Tokens sent 60,641 (cache read 58,914, cache written 1,703).
+
+### `migrate` on atproto (v1 clone `gate-v1`, parent of `32c014f`)
+
+```bash
+AGENT_CORE_LANGGRAPH_MODEL=anthropic:claude-sonnet-5-5 uv run agent-core job instance.yaml migrate \
+  --settings config/atproto.yaml --param CORPUS_PATH=$HOME/agent-core-scratch/capabilities/atproto \
+  --param BASE_BRANCH=gate-v1 --param PUSH=false --no-ask
+```
+
+- Run `migrate-20261120T043507Z-8f84b3`; exit 0; `end_state` `done`; 5 m 20 s.
+- Steps: `prepare-base` prepared; `checks` met; `checkout-sources` done (1 checkout, no errors); `migrate` migrated (129 entries, strategy `single`, no section, none skipped); `enrich-and-publish` committed (`scan[list]`, `scan[1]` to `scan[5]`, `scan`, `index`, `concepts`, `verify`, `embed`, `publish` committed). 129 entries enriched; no failures or skipped entries; no batch failed.
+- Model calls: 56 (prepare-base 6, checkout-sources 10, migrate 2, scan 4+4+5+4+3, index 2, concepts 2, verify 2, embed 3, publish 9). Tokens sent 1,021,041 (cache read 558,337, cache written 462,566).
+- Produced branch `automated/corpus-refresh-atproto-2026-11-20`; validated commit `e55287d60717b97a290918503123291c331d08bf`. `git diff --stat gate-v1..e55287d`: 3 files changed, 5,890 insertions, 320 deletions (`config.yaml` 72 lines, `index.md` 427, `index.yaml` 5,711, new).
+- Tree, in a worktree of the branch: `config.yaml` and `index.yaml` canonical (`loads(text).dumps() == text`); `index.md` equals `Corpus.open(".").render.texts()["index.md"]`; no `render-index.sh` (the tree holds `CLAUDE.md`, `LICENSE`, `README.md`, `config.yaml`, `index.md`, `index.yaml`); the v1 `index.md` lists 129 ids and all 129 are entries of the new `index.yaml`, which holds no other; `migrated` 129 equals the entry count; none is stale and none has the category `unknown`.
+- The commit message of a `migrate` carries `Sources: none looked at` and `not given` for the index changes, removed ids and excluded paths, because the sequence does not run `update-sources`.
