@@ -1,11 +1,6 @@
 [
+  [["locate_files", {"source": "docs", "files": ["a.md"]}]],
   [["files__read_text_file", {"path": "@CORPUS@/.source/docs/docs/a.md"}]],
-  [["exit", {"outcome": "done", "outputs": {"entries": [
-    {"path": "a.md", "title": "A", "summary": "The file a.md.", "tags": ["test"], "keywords": ["a"], "category": "essay",
-     "content_type": "markdown", "size": "standard", "grep_hint": null, "headings": []}
-  ]}}]],
-  [["exit", {"outcome": "done", "outputs": {"entries": [
-    {"path": "a.md", "title": "A", "summary": "The file a.md.", "tags": ["test"], "keywords": ["a"], "category": "essay",
-     "content_type": "markdown", "size": "standard", "grep_hint": null, "headings": []}
-  ]}}]]
+  [["exit", {"outcome": "done", "outputs": {"entries": [{"path": "a.md", "title": "A", "summary": "The file a.md.", "tags": ["test"], "keywords": ["a"], "category": "essay"}]}}]],
+  [["exit", {"outcome": "done", "outputs": {"entries": [{"path": "a.md", "title": "A", "summary": "The file a.md.", "tags": ["test"], "keywords": ["a"], "category": "essay"}]}}]]
 ]

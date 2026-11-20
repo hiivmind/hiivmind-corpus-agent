@@ -604,17 +604,27 @@ dev = [
 
 [[package]]
 name = "hiivmind-corpus-lib"
-version = "0.1.0"
+version = "0.2.0"
 source = { directory = "../hiivmind-corpus-lib" }
 dependencies = [
     { name = "pyyaml" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "pyyaml" }]
+requires-dist = [
+    { name = "fastembed", marker = "extra == 'embeddings'", specifier = ">=0.4.0" },
+    { name = "lancedb", marker = "extra == 'embeddings'", specifier = ">=0.23.0" },
+    { name = "pyarrow", marker = "extra == 'embeddings'", specifier = ">=15.0.0" },
+    { name = "pyyaml" },
+]
+provides-extras = ["embeddings"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "pytest" }]
+dev = [
+    { name = "lancedb", specifier = ">=0.23.0" },
+    { name = "pyarrow", specifier = ">=15.0.0" },
+    { name = "pytest" },
+]
 
 [[package]]
 name = "httpcore"

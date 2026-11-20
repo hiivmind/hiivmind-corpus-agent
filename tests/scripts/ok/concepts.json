@@ -1,8 +1,6 @@
 [
   [["files__read_text_file", {"path": "@CORPUS@/index.yaml"}]],
   [["files__read_text_file", {"path": "@CORPUS@/graph.yaml"}]],
-  [["reference", {"doc": "graph", "section": "Schema Definition"}]],
   [["set_concepts", {"assignments": {"docs:a.md": ["concept"]}}]],
-  [["shell__run", {"command": "cd @CORPUS@ && bash ./render-index.sh index.yaml"}]],
   [["exit", {"outcome": "done", "outputs": {"concepts_assigned": 1, "new_concept_candidates": [], "concept_errors": []}}]]
 ]

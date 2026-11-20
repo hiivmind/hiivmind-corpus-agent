@@ -18,7 +18,7 @@ def _docs_without_v0_runs():
 
 def test_nothing_calls_a_node_a_skill():   # LNG-1
     files = [*PROSE, ROOT / "topology.yaml", ROOT / "instance.yaml"]
-    assert len(PROSE) == 13
+    assert len(PROSE) == 20
     texts = {path: path.read_text() for path in files} | _docs_without_v0_runs()
     for path, text in texts.items():
         assert "SKILL.md" not in text, path

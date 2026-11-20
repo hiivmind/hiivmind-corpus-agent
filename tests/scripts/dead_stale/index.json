@@ -1,5 +1,4 @@
 [
   [["merge_scans", {}]],
-  [["shell__run", {"command": "cd @CORPUS@ && bash ./render-index.sh index.yaml"}]],
   [["exit", {"outcome": "done", "outputs": {"enriched_ids": ["docs:a.md"], "skipped_entries": [{"id": "docs:b.md", "reason": "no scan returned for it (file unreadable or not in the source)"}], "index_errors": []}}]]
 ]

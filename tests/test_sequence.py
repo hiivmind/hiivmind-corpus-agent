@@ -12,8 +12,8 @@ from tests.helpers import ROOT
 
 FRAGMENT = "enrich-and-publish"
 TAIL = ["scan[list]", "scan[1]", "scan", "index", "concepts", "verify", "embed", "publish"]
-WALK = ["checks", "update-sources", FRAGMENT]
-MIGRATE_WALK = ["checks", "checkout-sources", "migrate", FRAGMENT]
+WALK = ["prepare-base", "checks", "check-upstream", "update-sources", FRAGMENT]
+MIGRATE_WALK = ["prepare-base", "checks", "checkout-sources", "migrate", FRAGMENT]
 
 
 def names(result) -> list[str]:
@@ -35,11 +35,24 @@ def outcomes(result) -> dict[str, str]:
     return found
 
 
-async def test_nothing_to_do_makes_no_model_call(corpus, job):             # criterion 1, CRP-2
+def assert_current_on_the_real_head(corpus, tool_results) -> None:
+    """The freshness the `current` script accepts: `corpus_status` was given the head `git ls-remote` really printed, and said no refresh is needed."""
+    [(_, remote)] = [(a, r) for a, r in tool_results("shell__run") if "ls-remote" in a["command"]]
+    head = (remote["stdout"] if isinstance(remote, dict) else remote).split()[0]
+    assert head == corpus.upstream_head
+    [(args, status)] = tool_results("corpus_status")
+    assert args["observed"] == [{"id": "docs", "head": head}]
+    assert status["refresh_needed"] is False and [s["freshness"] for s in status["sources"]] == ["current"]
+
+
+async def test_nothing_new_ends_at_check_upstream(corpus, job, tool_results):            # INS-17
     corpus.set_last_sha(corpus.upstream_head)
-    r = await job()
-    assert r.end == "done" and r.summary == "Already current." and r.record.end_state == "done"
-    assert names(r) == ["checks"] and outcomes(r)["checks"] == "current"   # no node step: no model call
+    r = await job("current")
+    assert_current_on_the_real_head(corpus, tool_results)
+    assert r.end == "done" and r.record.end_state == "done"
+    assert names(r) == ["prepare-base", "checks", "check-upstream"] and outcomes(r)["check-upstream"] == "current"
+    assert r.summary == {"reason": "Already current."}
+    assert [n.node for n in r.record.notes] == ["prepare-base", "check-upstream"]   # no other node step
 
 
 async def test_a_refresh_walks_every_node_in_order_and_commits(corpus, job, today):
@@ -52,13 +65,14 @@ async def test_a_refresh_walks_every_node_in_order_and_commits(corpus, job, toda
     committed = corpus.git("show", f"{branch}:hiivmind-corpus-test/index.yaml")
     assert "docs:c.md" not in committed and "The file d.md, added in the second commit." in committed
     assert r.facts["enriched_ids"] == ["docs:a.md", "docs:d.md"] and r.facts["scans_failures"] == [] and r.facts["branch"] == branch
+    assert r.facts["index_changes"] == {"added": 1, "modified": 1, "removed": 1, "stale_entries": ["docs:a.md", "docs:d.md"]}   # the tools recorded them: no script gives them
+    assert r.facts["removed_ids"] == ["docs:c.md"] and r.facts["excluded_paths"] == []
 
 
-async def test_a_dirty_tree_fails_before_any_node(corpus, job):            # example 4
+async def test_a_dirty_tree_fails_at_prepare_base(corpus, job):            # example 4
     corpus.write("stray.txt", "x")
-    r = await job()
-    assert r.end == "failed" and "the working tree is dirty" in r.summary and "stray.txt" in r.summary
-    assert r.record.end_state == "failed" and names(r) == ["checks"]
+    r = await job("dirty")
+    assert r.end == "failed" and r.record.end_state == "failed" and names(r) == ["prepare-base"]
 
 
 async def test_a_failed_verify_still_publishes(corpus, job):
@@ -72,7 +86,7 @@ def test_nothing_names_the_deleted_files():
     assert files
     for file in files:
         text = file.read_text()
-        for gone in ("jobs/", "tools/repo.py", "tools/index.py", "tools/status.py", "scripts/", "reference/"):
+        for gone in ("jobs/", "tools/repo.py", "tools/index.py", "tools/status.py", "tools/upstream.py", "scripts/", "reference/", "render-index", "uv run"):
             assert gone not in text, f"{file.name}: {gone}"
 
 
@@ -97,22 +111,38 @@ async def test_when_every_scan_fails_the_entries_are_skipped_with_the_reason(cor
     assert [e["id"] for e in committed if e["stale"]] == ["docs:a.md", "docs:d.md"]   # still stale: the next run scans them again
 
 
-async def test_a_dead_stale_entry_goes_when_no_source_moved(corpus_stale, job):              # Review Focus 1
+async def test_a_dead_stale_entry_goes_when_no_source_moved(corpus_stale, job):              # INS-16
     corpus_stale.set_last_sha(corpus_stale.upstream_head)   # current; upstream deleted c.md
-    corpus_stale.mark_stale("docs:c.md")
+    corpus_stale.mark_stale("docs:c.md")   # a stale entry makes refresh_needed true: check-upstream ends behind
     r = await job("dead_stale")
     assert r.end == "done"
-    assert outcomes(r)["update-sources"] == "current" and "scan[1]" in inner(r)
+    assert outcomes(r)["check-upstream"] == "behind" and outcomes(r)["update-sources"] == "current" and "scan[1]" in inner(r)
     committed = yaml.safe_load(corpus_stale.git("show", f"{r.facts['branch']}:hiivmind-corpus-test/index.yaml"))["entries"]
     assert "docs:c.md" not in [e["id"] for e in committed]
+    assert r.facts["index_changes"] == {"added": 0, "modified": 0, "removed": 0, "stale_entries": []}
+    assert r.facts["removed_ids"] == ["docs:c.md"]
 
 
-async def test_after_a_merged_refresh_the_corpus_is_already_current(corpus, job, today):     # Review Focus 3
+async def test_an_excluded_path_reaches_publication(corpus_drafts, job, sent):               # INS-14
+    r = await job("excluded")
+    assert r.end == "done"
+    assert r.facts["excluded_paths"] == ["drafts/e.md"]
+    assert "drafts/e.md" in sent("publish")[-1] and "Excluded by `build.skip_sections`" in sent("publish")[-1]   # the fact crossed the fragment's declared inputs
+    committed = yaml.safe_load(corpus_drafts.git("show", f"{r.facts['branch']}:hiivmind-corpus-test/index.yaml"))["entries"]
+    assert "drafts/e.md" not in [e["path"] for e in committed]
+    assert not [e for e in r.facts["update_errors"] if "excluded-by-config" in e]
+    message = corpus_drafts.git("log", "-1", "--format=%B", r.facts["branch"])   # the commit the publish node wrote
+    index_section = message.split("## Index")[1].split("\n## ")[0]
+    assert "Excluded by build.skip_sections: 1" in index_section and "drafts/e.md" in index_section
+
+
+async def test_after_a_merged_refresh_the_corpus_is_already_current(corpus, job, tool_results):     # Review Focus 3
     r = await job()
     assert r.end == "done"
     corpus.git("push", "-q", "origin", f"{r.facts['branch']}:main")   # the pull request, merged on origin
-    r = await job()
-    assert r.end == "done" and r.summary == "Already current." and names(r) == ["checks"]
+    r = await job("current")
+    assert_current_on_the_real_head(corpus, tool_results)
+    assert r.end == "done" and r.summary == {"reason": "Already current."} and names(r) == ["prepare-base", "checks", "check-upstream"]
 
 
 def count_checks(monkeypatch) -> list[str]:
@@ -123,7 +153,7 @@ def count_checks(monkeypatch) -> list[str]:
 
     checked: list[str] = []
     module = load_module(ROOT, "tools.corpus")
-    for name in ("prepare_base", "refresh_needed"):
+    for name in ("index_is_v2", "corpus_ready"):
         def wrap(original, name=name):
             @functools.wraps(original)
             def counted(*args, **kwargs):
@@ -137,11 +167,11 @@ def count_checks(monkeypatch) -> list[str]:
 async def test_the_check_counter_sees_the_checks_run(corpus, job, monkeypatch):
     checked = count_checks(monkeypatch)
     r = await job()
-    assert r.end == "done" and {"prepare_base", "refresh_needed"} <= set(checked)
+    assert r.end == "done" and {"index_is_v2", "corpus_ready"} <= set(checked)
 
 
-async def test_a_run_crashed_in_verify_resumes_there(corpus, job, monkeypatch):               # Review Focus 5, example 8; re-cut
-    """The `crash` script kills the process that runs the scripted `verify`, so the first run is a child process of this test;
+async def test_a_run_crashed_in_publish_resumes_there(corpus, job, monkeypatch):               # Review Focus 5, example 8; re-cut
+    """The `crash` script kills the process that runs the scripted `publish` (the last node with `shell__run`), so the first run is a child process of this test;
     the resume is in this one, on the journal the child left. The scripted backend resumes by macro (the core's journal): the
     steps done before the crash are not run again, and the fragment, in flight, runs again from its start as one step."""
     from tests.conftest import INSTANCE_YAML, _scripted
@@ -165,7 +195,7 @@ async def test_a_run_crashed_in_verify_resumes_there(corpus, job, monkeypatch): 
     ran = [note.node for note in r.record.notes]   # the nodes that started in this process
     assert ran == ["index", "concepts", "verify", "embed", "publish"]   # not update-sources; the fragment ran again from its start, its journalled scan units replayed, not run
     assert r.end == "done" and r.run_id == "crashed"
-    assert names(r) == WALK and r.steps[1]["outcome"] == "updated"   # the macro trail: the fragment once, as one step
+    assert names(r) == WALK and r.steps[3]["outcome"] == "updated"   # the macro trail: the fragment once, as one step
     assert inner(r)[0] == "scan[list]" and inner(r)[-5:] == TAIL[3:] and outcomes(r)["publish"] == "committed"   # verify and on ran in the resume
     assert r.record.end_state == "done"
 
@@ -206,13 +236,13 @@ async def test_status_on_a_stale_corpus(corpus, job):                      # exa
 async def test_enrich_with_nothing_stale_makes_no_model_call(corpus, job):  # example 2
     r = await job(sequence="enrich")
     assert r.end == "done" and r.summary == "Nothing is stale."
-    assert names(r) == ["checks"] and outcomes(r)["checks"] == "nothing-stale"
+    assert names(r) == ["prepare-base", "checks"] and outcomes(r)["checks"] == "nothing-stale"
 
 
 async def test_enrich_walks_from_checkout_to_publish(corpus_stale, job, today):   # example 3
     r = await job("enrich_ok", sequence="enrich")
     assert r.end == "done"
-    assert names(r) == ["checks", "checkout-sources", FRAGMENT] and inner(r) == TAIL
+    assert names(r) == ["prepare-base", "checks", "checkout-sources", FRAGMENT] and inner(r) == TAIL
     assert subject(corpus_stale, r) == f"corpus: enrich {today}"
     entries = committed_entries(corpus_stale, r)
     assert entries["docs:b.md"]["stale"] is False and entries["docs:b.md"]["summary"] == "The file b.md, scanned for enrich."
@@ -232,14 +262,16 @@ async def test_migrate_walks_and_publishes_a_migration(corpus_v1_bullets, job, t
 async def test_refresh_on_a_v1_corpus_links_to_migrate(corpus_v1_bullets, job, today):     # example 5, CJW-2
     r = await job("migrate_ok")
     assert r.end == "done"
-    assert r.steps[0]["name"] == "checks" and r.steps[0]["outcome"] == "v1" and "migrate" in names(r)
+    assert names(r)[:6] == ["prepare-base", "checks", "checks", "checkout-sources", "migrate", FRAGMENT]   # the Link adds a second `checks`
+    assert r.steps[1]["outcome"] == "v1" and r.steps[2]["outcome"] == "met" and [n.node for n in r.record.notes].count("prepare-base") == 1
     assert "update-sources" not in names(r) and subject(corpus_v1_bullets, r) == f"corpus: migrate {today}"
 
 
 async def test_enrich_on_a_v1_corpus_links_to_migrate(corpus_v1_bullets, job, today):      # CJW-2a
     r = await job("migrate_ok", sequence="enrich")
     assert r.end == "done"
-    assert r.steps[0]["outcome"] == "v1" and "migrate" in names(r) and "checkout-sources" in names(r)
+    assert names(r)[:6] == ["prepare-base", "checks", "checks", "checkout-sources", "migrate", FRAGMENT]
+    assert r.steps[1]["outcome"] == "v1" and r.steps[2]["outcome"] == "met" and [n.node for n in r.record.notes].count("prepare-base") == 1
     assert subject(corpus_v1_bullets, r) == f"corpus: migrate {today}"
 
 
@@ -264,7 +296,7 @@ async def test_migrate_refuses_a_corpus_with_a_web_source(corpus_v1_bullets, job
     corpus_v1_bullets.add_source({"id": "site", "type": "web"})
     r = await job(sequence="migrate")
     assert r.end == "failed" and "The corpus has sources this instance does not handle." in r.summary
-    assert names(r) == ["checks"]
+    assert names(r) == ["prepare-base", "checks"]
 
 
 async def test_migrate_that_would_lose_ids_ends_failed_and_writes_nothing(corpus_v1_bullets, job):   # example 7, CJW-4
@@ -280,7 +312,7 @@ async def test_migrate_that_would_lose_ids_ends_failed_and_writes_nothing(corpus
 async def test_a_source_that_cannot_be_checked_out_ends_the_run(corpus_v1_bullets, job):  # example 7a, CJW-12
     r = await job("checkout_fails", sequence="migrate")
     assert r.end == "failed", r.summary
-    assert names(r) == ["checks", "checkout-sources"] and r.record.end_state == "failed"
+    assert names(r) == ["prepare-base", "checks", "checkout-sources"] and r.record.end_state == "failed"
     assert "cannot be resolved" in r.facts["checkout_errors"][0]
     assert corpus_v1_bullets.git("status", "--porcelain") == "" and not (corpus_v1_bullets.path / "index.yaml").exists()
 

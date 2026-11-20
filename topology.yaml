@@ -10,6 +10,8 @@ nodes:
   - {name: status, path: nodes/status.md}
   - {name: migrate, path: nodes/migrate.md}
   - {name: graph-validate, path: nodes/graph-validate.md}
+  - {name: prepare-base, path: nodes/prepare-base.md}
+  - {name: check-upstream, path: nodes/check-upstream.md}
 exits:
   done: route
   declined: route
@@ -17,7 +19,7 @@ exits:
 fragments:
   # The tail `refresh`, `enrich` and `migrate` share: scan the stale batches, then index, concepts, verify, embed, publish.
   enrich-and-publish:
-    inputs: [sources, index_changes, removed_ids, update_errors, migrated, migrate_skipped, strategy]
+    inputs: [sources, index_changes, removed_ids, update_errors, migrated, migrate_skipped, strategy, excluded_paths]
     outputs: [enriched_ids, skipped_entries, index_errors, scans_failures, branch, pr_url, superseded_prs]
     exits: [published, committed, nothing-to-publish, failed]
     # `max_concurrency` is how many scan runs go at once (the core's default is 4): the API key refused 3 of 4 at once with 429 "concurrent connections".
@@ -30,17 +32,24 @@ fragments:
       embed: {done: publish, deferred: publish, skipped: publish, failed: publish}
       publish: {published: end, committed: end, nothing-to-publish: end, skipped: end, failed: end}
 sequences:
+  # `refresh`, `enrich` and `migrate` start with `prepare-base` and Link to a `-prepared` sequence: the core runs a sequence's checks before its start and none after a node, and a Link starts a sequence whose checks then run on the prepared tree.
   refresh:
     description: Bring one corpus up to date with its sources and open a pull request.
-    start: update-sources
+    start: prepare-base
+    inputs: {sources: all}
+    transitions:
+      prepare-base: {prepared: {link: refresh-prepared}, failed: end}
+
+  refresh-prepared:
+    description: The checks and steps of refresh that need the prepared repository.
+    start: check-upstream
     inputs: {sources: all}
     checks:
-      - {tool: prepare_base, message: "The corpus repository could not be prepared."}
       - {tool: index_is_v2, outcome: v1, message: "The corpus has a v1 index."}
       - {tool: corpus_ready, message: "The corpus has no config.yaml, no source, or no built v2 index."}
-      - {tool: refresh_needed, outcome: current, message: "Already current."}
     transitions:
-      check: {current: end, v1: {link: migrate}}
+      check: {v1: {link: migrate-prepared}}
+      check-upstream: {behind: update-sources, current: end, failed: end}
       update-sources: {updated: enrich-and-publish, current: enrich-and-publish, declined: end, failed: end, skipped: publish}
       enrich-and-publish: &fragment_exits {published: end, committed: end, nothing-to-publish: end, skipped: end, failed: end}
       publish: {published: end, committed: end, nothing-to-publish: end, skipped: end, failed: end}
@@ -53,22 +62,32 @@ sequences:
 
   enrich:
     description: Re-scan the stale entries of one corpus and open a pull request.
+    start: prepare-base
+    transitions:
+      prepare-base: {prepared: {link: enrich-prepared}, failed: end}
+
+  enrich-prepared:
+    description: The checks and steps of enrich that need the prepared repository.
     start: checkout-sources
     checks:
-      - {tool: prepare_base, message: "The corpus repository could not be prepared."}
       - {tool: index_is_v2, outcome: v1, message: "The corpus has a v1 index."}
       - {tool: corpus_ready, message: "The corpus has no config.yaml, no source, or no built v2 index."}
       - {tool: stale_entries, outcome: nothing-stale, message: "Nothing is stale."}
     transitions:
-      check: {v1: {link: migrate}, nothing-stale: end}
+      check: {v1: {link: migrate-prepared}, nothing-stale: end}
       checkout-sources: {done: enrich-and-publish, skipped: end, failed: end}
       enrich-and-publish: *fragment_exits
 
   migrate:
     description: Convert a v1 corpus to v2, scan every entry, and open a pull request.
+    start: prepare-base
+    transitions:
+      prepare-base: {prepared: {link: migrate-prepared}, failed: end}
+
+  migrate-prepared:
+    description: The checks and steps of migrate that need the prepared repository.
     start: checkout-sources
     checks:
-      - {tool: prepare_base, message: "The corpus repository could not be prepared."}
       - {tool: index_is_v1, message: "The corpus has no v1 index to migrate."}
       - {tool: sources_handled, message: "The corpus has sources this instance does not handle."}
     transitions:

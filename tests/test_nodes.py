@@ -23,10 +23,10 @@ def test_scan_declares_its_contract(instance):
     assert set(node.contract.inputs) == {"batch"}
     assert node.output_schemas["entries"]["type"] == "array"
     assert node.output_schemas["entries"]["items"]["required"] == [
-        "path", "title", "summary", "tags", "keywords", "category", "content_type", "size", "grep_hint", "headings",
+        "path", "title", "summary", "tags", "keywords", "category",
     ]
     assert node.contract.exits == ("done", "failed") and node.context == "none"
-    assert node.allowed_tools == ("files__read_text_file", "files__list_directory", "shell__run", "reference")
+    assert node.allowed_tools == ("files__read_text_file", "files__list_directory", "locate_files")
 
 
 async def test_scan_contract(corpus_stale, run):
@@ -38,13 +38,20 @@ async def test_scan_returns_the_entry_the_script_wrote_for_each_file(corpus_stal
     result = await run("scan", {"batch": {"source": "docs", "files": ["a.md", "d.md"]}})
     entries = result["outputs"]["entries"]
     assert [e["path"] for e in entries] == ["a.md", "d.md"]
-    assert all(e["content_type"] == "markdown" and e["size"] == "standard" for e in entries)
+    assert all(set(e) == {"path", "title", "summary", "tags", "keywords", "category"} for e in entries)
 
 
 async def test_scan_sends_back_a_category_outside_the_enum(corpus_stale, run):
     result = await run("scan", {"batch": {"source": "docs", "files": ["a.md"]}}, case="scan_bad_category")   # wrong twice
     assert result["outcome"] == "failed" and result["reason"] == "invalid_output"
     assert any("category" in e and "essay" in e for e in result["errors"])
+
+
+async def test_scan_asks_for_six_fields(corpus_stale, instructions):
+    text = await filled_procedure(instructions, "scan", {"batch": {"source": "docs", "files": ["a.md"]}})
+    assert "locate_files" in text and "Entry Metadata Generation" in text
+    for gone in ("content_type", "grep_hint", "headings"):
+        assert gone not in text, gone
 
 
 async def test_scan_takes_a_batch(corpus_stale, instructions):
@@ -57,39 +64,61 @@ async def test_scan_takes_a_batch(corpus_stale, instructions):
 def test_update_sources_declares_its_contract(instance):
     node = instance.nodes["update-sources"]
     assert set(node.contract.inputs) == {"sources"}
-    assert set(node.contract.outputs) == {"sources", "index_changes", "removed_ids", "update_errors"}
+    assert set(node.contract.outputs) == {"sources", "index_changes", "removed_ids", "excluded_paths", "update_errors"}
+    assert node.output_schemas["excluded_paths"] == {"type": "array", "items": {"type": "string"}}
     source = node.output_schemas["sources"]["items"]
     assert source["required"] == ["id", "type", "status", "old_sha", "new_sha", "files_changed"]
     assert source["properties"]["status"]["enum"] == ["current", "updated", "failed", "skipped-manual"]
     assert node.output_schemas["index_changes"]["required"] == ["added", "modified", "removed", "stale_entries"]
     assert node.contract.exits == ("updated", "current", "declined", "failed") and node.context == "none"
+    assert node.allowed_tools == ("shell__run", "files__read_text_file", "source_freshness", "apply_source_update", "drop_missing")
+    assert [p.tool for p in node.preconditions] == ["begin_update"]
 
 
 def test_update_sources_edits_no_yaml_by_text(instance):          # CRP-4
     tools = instance.nodes["update-sources"].allowed_tools
-    assert "files__edit_file" not in tools and "files__write_file" not in tools
-    assert {"source_freshness", "apply_source_update", "drop_missing", "reference"} <= set(tools)
+    assert "files__edit_file" not in tools and "files__write_file" not in tools and "reference" not in tools
+    assert {"source_freshness", "apply_source_update", "drop_missing"} <= set(tools)
 
 
-async def test_update_sources_applies_a_change_through_the_tool(corpus, run):
+async def test_update_sources_applies_a_change_through_the_tool(corpus, run):     # INS-11
     result = await run("update-sources", {"sources": "all"})
     assert result["outcome"] == "updated"
     assert result["outputs"] == {
         "sources": [{"id": "docs", "type": "git", "status": "updated", "old_sha": corpus.first_sha[:7], "new_sha": corpus.upstream_head[:7], "files_changed": 3}],
+        "update_errors": [],
         "index_changes": {"added": 1, "modified": 1, "removed": 1, "stale_entries": ["docs:a.md", "docs:d.md"]},
-        "removed_ids": ["docs:c.md"], "update_errors": [],
+        "removed_ids": ["docs:c.md"], "excluded_paths": [],
     }
     ids = [e["id"] for e in yaml.safe_load((corpus.path / "index.yaml").read_text())["entries"]]
     assert "docs:c.md" not in ids and corpus.entry("docs:a.md")["stale"] is True and corpus.entry("docs:d.md")["summary"] == "Pending re-scan"
     assert yaml.safe_load((corpus.path / "config.yaml").read_text())["sources"][0]["last_commit_sha"] == corpus.upstream_head
-    rendered = (corpus.path / "index.md").read_text()   # rendered by the real render-index.sh
-    assert "docs:d.md" in rendered and "docs:c.md" not in rendered
+
+
+async def test_update_sources_names_the_diff_and_listing_commands(corpus, instructions):
+    text = await filled_procedure(instructions, "update-sources", {"sources": "all"})
+    for needed in ("diff --name-status -z --no-renames", "ls-tree -r -z --name-only HEAD", ".changes", ".listing", ":(literal)"):
+        assert needed in text, needed
+    assert "excluded-by-config" not in text and "render-index" not in text
+
+
+async def test_update_sources_exit_omits_the_recorded_outputs(corpus, instructions):
+    text = await filled_procedure(instructions, "update-sources", {"sources": "all"})
+    assert "`sources` and `update_errors` only" in text
+    assert "`index_changes`, `removed_ids` and `excluded_paths`" in text and "record" in text
+
+
+async def test_update_sources_skips_a_source_with_no_clone_when_dropping(corpus, instructions):     # Review Focus 4
+    text = await filled_procedure(instructions, "update-sources", {"sources": "all"})
+    phase5 = text[text.index("## Phase 5"):]
+    assert 0 < phase5.index("rev-parse HEAD") < phase5.index("ls-tree")
+    assert "leave the source alone" in phase5 and phase5.index("leave the source alone") < phase5.index("ls-tree")
 
 
 async def test_update_sources_procedure_is_filled_with_the_corpus_and_the_sources(corpus, instructions):
     text = await filled_procedure(instructions, "update-sources", {"sources": "all"})
     assert f"Corpus: {corpus.path}." in text and "Sources to update: all." in text and "{{" not in text
-    assert f"cd {corpus.path} && bash ./render-index.sh index.yaml" in text   # the fragment, included and filled
+    assert "git ls-remote" in text   # the upstream-head include, filled
 
 
 async def test_update_sources_keeps_the_recipe_for_git_sources(corpus, instructions):
@@ -127,14 +156,17 @@ def test_checkout_sources_declares_its_contract(instance):
     assert node.output_schemas["checkouts"]["items"]["required"] == ["id", "status"]
     assert node.output_schemas["checkouts"]["items"]["properties"]["status"]["enum"] == ["checked-out", "failed"]
     assert node.contract.exits == ("done", "failed") and node.context == "none"
-    assert node.allowed_tools == ("shell__run", "files__read_text_file", "reference")
+    assert node.allowed_tools == ("shell__run", "files__read_text_file")
 
 
 def test_status_declares_its_contract(instance):
     node = instance.nodes["status"]
     assert set(node.contract.inputs) == set()
     assert set(node.contract.outputs) == {"sources", "index_format", "stale_count", "embeddings_lag", "refresh_needed", "status_errors"}
-    assert node.contract.exits == ("current", "stale", "failed") and node.allowed_tools == ("corpus_status",) and node.context == "none"
+    assert node.contract.exits == ("current", "stale", "failed") and node.context == "none"
+    assert node.allowed_tools == ("shell__run", "files__read_text_file", "corpus_status")
+    assert node.output_schemas["sources"]["items"]["properties"]["freshness"]["enum"] == ["current", "behind", "unknown", "manual"]
+    assert node.output_schemas["stale_count"]["type"] == ["integer", "null"]
 
 
 def test_migrate_declares_its_contract(instance):
@@ -148,6 +180,11 @@ def test_graph_validate_declares_its_contract(instance):
     node = instance.nodes["graph-validate"]
     assert set(node.contract.inputs) == set() and set(node.contract.outputs) == {"concepts", "relationships", "issues", "valid"}
     assert node.contract.exits == ("valid", "invalid", "failed") and node.allowed_tools == ("validate_graph",) and node.context == "none"
+
+
+def test_excluded_paths_is_a_declared_input_of_the_fragment_and_of_publish(instance):     # INS-14
+    assert "excluded_paths" in instance.topology.fragments["enrich-and-publish"].inputs
+    assert "excluded_paths" in instance.nodes["publish"].contract.inputs
 
 
 async def test_update_sources_and_checkout_sources_include_the_git_fragment(corpus, instructions):
@@ -204,17 +241,17 @@ def test_index_declares_its_contract(instance):
     node = instance.nodes["index"]
     assert set(node.contract.inputs) == {"scans", "scans_failures"}
     assert set(node.contract.outputs) == {"enriched_ids", "skipped_entries", "index_errors"}
-    assert node.contract.exits == ("done", "failed") and node.allowed_tools == ("merge_scans", "shell__run")
+    assert node.contract.exits == ("done", "failed") and node.allowed_tools == ("merge_scans",)
 
 
-async def test_index_merges_through_merge_scans_and_renders(corpus, run):
+async def test_index_merges_through_merge_scans(corpus, run):
     await run("update-sources", {"sources": "all"})   # a.md and d.md stale
     scanned = (await run("scan", {"batch": {"source": "docs", "files": ["a.md", "d.md"]}}))["outputs"]
     result = await run("index", {"scans": [scanned], "scans_failures": []})
     assert result["outcome"] == "done" and result["outputs"]["enriched_ids"] == ["docs:a.md", "docs:d.md"]
     a = corpus.entry("docs:a.md")
     assert a["stale"] is False and a["summary"] == "The file a.md, changed in the second commit."
-    assert "The file d.md, added in the second commit." in (corpus.path / "index.md").read_text()
+    assert corpus.entry("docs:d.md")["summary"] == "The file d.md, added in the second commit."
 
 
 async def test_the_index_procedure_shows_the_model_no_scan(corpus, instructions):
@@ -284,15 +321,85 @@ async def test_embed_defers_while_entries_are_stale(corpus_stale, run):
     assert result["outcome"] == "deferred" and result["outputs"]["embeddings"] == "deferred"
 
 
-def test_embed_with_an_unexpected_detect_output_is_skipped_and_says_so():   # design review A8
+def test_embed_names_the_four_states():
     text = (ROOT / "nodes" / "embed.md").read_text()
-    assert "anything else, or nothing" in text and "`detect.py printed <output>`" in text and "Never download the model" in text
+    for state in ("`absent`", "`ready`", "`no-model`", "`not-installed`"):
+        assert state in text, state
+    assert "detect.py" not in text and "anything else" not in text and "Never download the model" in text
     assert text.index("`stale_entries`") < text.index("CALL `embed`")   # stale entries are never embedded
 
 
 # --- every node -------------------------------------------------------------------------------------------------------
 
+def test_no_node_lists_reference(instance):    # INS-12
+    for name, node in instance.nodes.items():
+        assert "reference" not in node.allowed_tools, name
+    for path in sorted((ROOT / "nodes").glob("*.md")):
+        assert "CALL `reference`" not in path.read_text(), path
+
+
+def test_no_node_renders_the_index(instance):
+    for path in sorted((ROOT / "nodes").glob("*.md")):
+        text = path.read_text()
+        assert "render-index" not in text and "index.md not rendered" not in text, path
+    for name in ("index", "concepts", "verify"):
+        assert "shell__run" not in instance.nodes[name].allowed_tools, name
+
+
 def test_no_node_loads_a_reference_file():
     for node in sorted((ROOT / "nodes").glob("*.md")):
         text = node.read_text()
         assert "reference/" not in text and "scripts/" not in text and "CALL `load`" not in text, node
+
+
+# --- prepare-base, check-upstream ---------------------------------------------------------------------------------------
+
+def test_prepare_base_declares_its_contract(instance):
+    node = instance.nodes["prepare-base"]
+    assert set(node.contract.inputs) == set() and set(node.contract.outputs) == set()
+    assert node.contract.exits == ("prepared", "failed") and node.allowed_tools == ("shell__run",)
+
+
+def test_check_upstream_declares_its_contract(instance):
+    node = instance.nodes["check-upstream"]
+    assert set(node.contract.inputs) == set() and set(node.contract.outputs) == set()
+    assert node.contract.exits == ("behind", "current", "failed") and node.allowed_tools == ("shell__run", "files__read_text_file", "corpus_status")
+
+
+async def test_prepare_base_names_its_commands(corpus, instructions):
+    text = await filled_procedure(instructions, "prepare-base", {})
+    for command in ("status --porcelain", "checkout main", "fetch --prune origin", "merge --ff-only origin/main", "rev-list --count origin/main..HEAD"):
+        assert command in text
+    assert "timeout" not in text and "{{" not in text
+
+
+async def test_prepare_base_prepares_a_clean_clone(corpus, run):
+    assert (await run("prepare-base", {}))["outcome"] == "prepared"
+
+
+async def test_prepare_base_refuses_a_base_ahead_of_origin(corpus, run):   # the library's regression: the publish branch would carry the commit
+    corpus.make_ahead()
+    result = await run("prepare-base", {}, case="ahead")
+    assert result["outcome"] == "failed" and "1 commit" in result["outputs"]["reason"]
+    assert corpus.git("rev-list", "--count", "origin/main..main") == "1"   # the real command printed 1; nothing moved
+
+
+async def test_prepare_base_leaves_the_clone_on_the_base_branch_fast_forwarded(corpus, run):
+    corpus.git("checkout", "-q", "-b", "side")
+    sha = corpus.advance_origin()
+    assert (await run("prepare-base", {}))["outcome"] == "prepared"
+    assert corpus.git("branch", "--show-current") == "main" and corpus.git("rev-parse", "HEAD") == sha
+
+
+async def test_the_head_check_is_one_include(corpus, instructions):
+    text = await filled_procedure(instructions, "check-upstream", {})
+    assert "git ls-remote" in text and "refs/heads/" in text and "{{" not in text
+
+
+async def test_check_upstream_exits_behind_when_the_source_is_behind(corpus, run):
+    assert (await run("check-upstream", {}))["outcome"] == "behind"
+
+
+async def test_the_head_check_reads_stdout_and_an_empty_one_is_an_error(corpus, instructions):
+    text = await filled_procedure(instructions, "check-upstream", {})
+    assert "STDOUT" in text and "no such branch" in text and "stderr" in text

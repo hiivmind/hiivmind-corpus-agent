@@ -13,6 +13,7 @@ INPUTS = (
     "sources", "index_changes", "removed_ids", "enriched_ids", "skipped_entries", "index_errors", "scans_failures",
     "concepts_assigned", "new_concept_candidates", "verification", "embeddings", "embeddings_lag",
     "update_errors", "concept_errors", "verify_errors", "embed_errors", "migrated", "migrate_skipped", "strategy",
+    "excluded_paths",
 )
 
 
@@ -72,11 +73,6 @@ def test_publish_names_both_refusals_and_times_every_command():
     assert "50" in text   # at most 50 ids in a list
 
 
-def test_publish_declares_the_migration_inputs(instance):
-    node = instance.nodes["publish"]
-    assert {"migrated", "migrate_skipped", "strategy"} <= set(node.contract.inputs)
-
-
 async def test_publish_titles_from_the_facts(corpus, instructions):
     from tests.test_nodes import filled_procedure
     text = await filled_procedure(instructions, "publish", {})
@@ -85,3 +81,9 @@ async def test_publish_titles_from_the_facts(corpus, instructions):
     assert -1 not in at and at == sorted(at), at
     assert '--title "<the title>"' in text and '--title "corpus: refresh' not in text
     assert "## Migration" in text and "Migrated: <migrated> entries (<strategy>)" in text
+
+
+async def test_publish_lists_the_excluded_paths(corpus, instructions):
+    from tests.test_nodes import filled_procedure
+    text = await filled_procedure(instructions, "publish", {"excluded_paths": ["drafts/e.md"]})
+    assert "drafts/e.md" in text and "Excluded by `build.skip_sections`" in text

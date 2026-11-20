@@ -8,14 +8,14 @@ outputs:
       type: object
       required: [id, type, freshness]
       properties:
-        freshness: {enum: [current, behind, unknown]}
+        freshness: {enum: [current, behind, unknown, manual]}
   index_format: {enum: [v2, v1, none]}
-  stale_count: {type: integer}
+  stale_count: {type: [integer, "null"]}
   embeddings_lag: {type: [integer, "null"]}
   refresh_needed: {type: boolean}
   status_errors: {type: array, items: {type: string}}
 exits: [current, stale, failed]
-allowed-tools: [corpus_status]
+allowed-tools: [shell__run, files__read_text_file, corpus_status]
 context: none
 ---
 # Status
@@ -24,7 +24,12 @@ Reports whether the corpus needs a refresh. `corpus_status` finds every figure a
 
 Corpus: {{settings.CORPUS_PATH}}.
 
+A shell command's result has an exit code. A command went well when its exit code is 0.
+
 ## Steps
 
-1. CALL `corpus_status`. If it returns an error, EXIT `failed` with output `status_errors` set to a list holding that error.
-2. If its `refresh_needed` is `true`, EXIT `stale`; otherwise EXIT `current`. Give no outputs: the call recorded them.
+1. CALL `files__read_text_file` with the path `{{settings.CORPUS_PATH}}/config.yaml`. If it returns an error, EXIT `failed` with output `status_errors` set to a list holding that error.
+2. Look at the upstream of each source.
+{{include includes/sources/upstream-head.md}}
+3. CALL `corpus_status` with `observed`. If it returns an error, EXIT `failed` with output `status_errors` set to a list holding that error.
+4. If its `refresh_needed` is `true`, EXIT `stale`; otherwise EXIT `current`. Give no outputs: the call recorded them.
