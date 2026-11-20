@@ -13,7 +13,7 @@ outputs:
       drift_entries: {type: array, items: {type: string}}
   verify_errors: {type: array, items: {type: string}}
 exits: [done, failed]
-allowed-tools: [verify_previews, set_summary, shell__run]
+allowed-tools: [verify_previews, set_summary]
 context: none
 ---
 # Verify
@@ -32,8 +32,7 @@ Keep a list `verify_errors`, empty to begin with, and `verification` with `sampl
 3. CALL `verify_previews` with `entry_ids` set to the ids of the sample. If it returns an error, verification is best-effort: add `verification not run: <error>` to `verify_errors` and EXIT `done` with outputs `verification` and `verify_errors`.
 4. It returned a list with one item for each entry: `entry_id`, `title`, `summary`, `source_path` and `content_preview`. An item whose `content_preview` is null cannot be judged: add `<entry_id>: no content preview` to `verify_errors` and leave it out. Set `sampled` to the number of items left.
 5. Repeat for each item left, one after another: judge whether its `summary` accurately describes its `content_preview`. If it does, go on to the next item. If it does not, write a new summary from the preview alone and CALL `set_summary` with `entry_id` the item's `entry_id` and `summary` the new summary. Add one to `failed`. If the call succeeds, add the entry's id to `drift_entries`; if it returns an error, add `index update failed: <error>` to `verify_errors`.
-6. If `drift_entries` is not empty, render the index; the node's error list is `verify_errors`. {{include includes/render-index.md}}
-7. EXIT `done` with outputs `verification` and `verify_errors`.
+6. EXIT `done` with outputs `verification` and `verify_errors`.
 
 ## Errors
 
@@ -41,4 +40,3 @@ Keep a list `verify_errors`, empty to begin with, and `verification` with `sampl
 |-------|-----------|
 | `verify_previews` returns an error (step 3) | Add `verification not run: <error>` to `verify_errors`; verification is best-effort. |
 | `set_summary` returns an error (step 5) | Add `index update failed: <error>` to `verify_errors` and go on. |
-| `render-index.sh` exits with a code that is not 0 (step 6) | Add `index.md not rendered: <error>` to `verify_errors`. |

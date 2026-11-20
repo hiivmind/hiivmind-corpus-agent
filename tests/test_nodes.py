@@ -23,10 +23,10 @@ def test_scan_declares_its_contract(instance):
     assert set(node.contract.inputs) == {"batch"}
     assert node.output_schemas["entries"]["type"] == "array"
     assert node.output_schemas["entries"]["items"]["required"] == [
-        "path", "title", "summary", "tags", "keywords", "category", "content_type", "size", "grep_hint", "headings",
+        "path", "title", "summary", "tags", "keywords", "category",
     ]
     assert node.contract.exits == ("done", "failed") and node.context == "none"
-    assert node.allowed_tools == ("files__read_text_file", "files__list_directory", "shell__run", "reference")
+    assert node.allowed_tools == ("files__read_text_file", "files__list_directory", "locate_files")
 
 
 async def test_scan_contract(corpus_stale, run):
@@ -38,13 +38,20 @@ async def test_scan_returns_the_entry_the_script_wrote_for_each_file(corpus_stal
     result = await run("scan", {"batch": {"source": "docs", "files": ["a.md", "d.md"]}})
     entries = result["outputs"]["entries"]
     assert [e["path"] for e in entries] == ["a.md", "d.md"]
-    assert all(e["content_type"] == "markdown" and e["size"] == "standard" for e in entries)
+    assert all(set(e) == {"path", "title", "summary", "tags", "keywords", "category"} for e in entries)
 
 
 async def test_scan_sends_back_a_category_outside_the_enum(corpus_stale, run):
     result = await run("scan", {"batch": {"source": "docs", "files": ["a.md"]}}, case="scan_bad_category")   # wrong twice
     assert result["outcome"] == "failed" and result["reason"] == "invalid_output"
     assert any("category" in e and "essay" in e for e in result["errors"])
+
+
+async def test_scan_asks_for_six_fields(corpus_stale, instructions):
+    text = await filled_procedure(instructions, "scan", {"batch": {"source": "docs", "files": ["a.md"]}})
+    assert "locate_files" in text and "Entry Metadata Generation" in text
+    for gone in ("content_type", "grep_hint", "headings"):
+        assert gone not in text, gone
 
 
 async def test_scan_takes_a_batch(corpus_stale, instructions):
@@ -156,7 +163,10 @@ def test_status_declares_its_contract(instance):
     node = instance.nodes["status"]
     assert set(node.contract.inputs) == set()
     assert set(node.contract.outputs) == {"sources", "index_format", "stale_count", "embeddings_lag", "refresh_needed", "status_errors"}
-    assert node.contract.exits == ("current", "stale", "failed") and node.allowed_tools == ("corpus_status",) and node.context == "none"
+    assert node.contract.exits == ("current", "stale", "failed") and node.context == "none"
+    assert node.allowed_tools == ("shell__run", "files__read_text_file", "corpus_status")
+    assert node.output_schemas["sources"]["items"]["properties"]["freshness"]["enum"] == ["current", "behind", "unknown", "manual"]
+    assert node.output_schemas["stale_count"]["type"] == ["integer", "null"]
 
 
 def test_migrate_declares_its_contract(instance):
@@ -231,17 +241,17 @@ def test_index_declares_its_contract(instance):
     node = instance.nodes["index"]
     assert set(node.contract.inputs) == {"scans", "scans_failures"}
     assert set(node.contract.outputs) == {"enriched_ids", "skipped_entries", "index_errors"}
-    assert node.contract.exits == ("done", "failed") and node.allowed_tools == ("merge_scans", "shell__run")
+    assert node.contract.exits == ("done", "failed") and node.allowed_tools == ("merge_scans",)
 
 
-async def test_index_merges_through_merge_scans_and_renders(corpus, run):
+async def test_index_merges_through_merge_scans(corpus, run):
     await run("update-sources", {"sources": "all"})   # a.md and d.md stale
     scanned = (await run("scan", {"batch": {"source": "docs", "files": ["a.md", "d.md"]}}))["outputs"]
     result = await run("index", {"scans": [scanned], "scans_failures": []})
     assert result["outcome"] == "done" and result["outputs"]["enriched_ids"] == ["docs:a.md", "docs:d.md"]
     a = corpus.entry("docs:a.md")
     assert a["stale"] is False and a["summary"] == "The file a.md, changed in the second commit."
-    assert "The file d.md, added in the second commit." in (corpus.path / "index.md").read_text()
+    assert corpus.entry("docs:d.md")["summary"] == "The file d.md, added in the second commit."
 
 
 async def test_the_index_procedure_shows_the_model_no_scan(corpus, instructions):
@@ -311,13 +321,30 @@ async def test_embed_defers_while_entries_are_stale(corpus_stale, run):
     assert result["outcome"] == "deferred" and result["outputs"]["embeddings"] == "deferred"
 
 
-def test_embed_with_an_unexpected_detect_output_is_skipped_and_says_so():   # design review A8
+def test_embed_names_the_four_states():
     text = (ROOT / "nodes" / "embed.md").read_text()
-    assert "anything else, or nothing" in text and "`detect.py printed <output>`" in text and "Never download the model" in text
+    for state in ("`absent`", "`ready`", "`no-model`", "`not-installed`"):
+        assert state in text, state
+    assert "detect.py" not in text and "anything else" not in text and "Never download the model" in text
     assert text.index("`stale_entries`") < text.index("CALL `embed`")   # stale entries are never embedded
 
 
 # --- every node -------------------------------------------------------------------------------------------------------
+
+def test_no_node_lists_reference(instance):    # INS-12
+    for name, node in instance.nodes.items():
+        assert "reference" not in node.allowed_tools, name
+    for path in sorted((ROOT / "nodes").glob("*.md")):
+        assert "CALL `reference`" not in path.read_text(), path
+
+
+def test_no_node_renders_the_index(instance):
+    for path in sorted((ROOT / "nodes").glob("*.md")):
+        text = path.read_text()
+        assert "render-index" not in text and "index.md not rendered" not in text, path
+    for name in ("index", "concepts", "verify"):
+        assert "shell__run" not in instance.nodes[name].allowed_tools, name
+
 
 def test_no_node_loads_a_reference_file():
     for node in sorted((ROOT / "nodes").glob("*.md")):

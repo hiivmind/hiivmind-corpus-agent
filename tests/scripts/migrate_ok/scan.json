@@ -1,5 +1,5 @@
 [
-  [["reference", {"doc": "source-scanner", "section": "Entry Metadata Generation"}]],
+  [["locate_files", {"source": "docs", "files": ["a.md", "b.md"]}]],
   [["files__read_text_file", {"path": "@CORPUS@/.source/docs/docs/a.md"}], ["files__read_text_file", {"path": "@CORPUS@/.source/docs/docs/b.md"}]],
-  [["exit", {"outcome": "done", "outputs": {"entries": [{"path": "a.md", "title": "A", "summary": "The file a.md, scanned after the migration.", "tags": ["test"], "keywords": ["a"], "category": "guide", "content_type": "markdown", "size": "standard", "grep_hint": null, "headings": [{"anchor": "a-md", "title": "a.md"}]}, {"path": "b.md", "title": "B", "summary": "The file b.md, scanned after the migration.", "tags": ["test"], "keywords": ["b"], "category": "guide", "content_type": "markdown", "size": "standard", "grep_hint": null, "headings": [{"anchor": "b-md", "title": "b.md"}]}]}}]]
+  [["exit", {"outcome": "done", "outputs": {"entries": [{"path": "a.md", "title": "A", "summary": "The file a.md, scanned after the migration.", "tags": ["test"], "keywords": ["a"], "category": "guide"}, {"path": "b.md", "title": "B", "summary": "The file b.md, scanned after the migration.", "tags": ["test"], "keywords": ["b"], "category": "guide"}]}}]]
 ]

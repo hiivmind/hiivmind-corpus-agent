@@ -1,5 +1,4 @@
 [
-  [["reference", {"doc": "embeddings", "section": "Dependency Detection"}]],
   [["embeddings_status", {}]],
   [["embeddings_lag", {}]],
   [["exit", {"outcome": "done", "outputs": {"embeddings": "skipped", "embeddings_lag": null, "embed_errors": []}}]]

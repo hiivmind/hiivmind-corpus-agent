@@ -7,7 +7,7 @@ outputs:
   embeddings_lag: {type: [integer, "null"]}
   embed_errors: {type: array, items: {type: string}}
 exits: [done, deferred, failed]
-allowed-tools: [reference, embeddings_status, stale_entries, embed, embeddings_lag]
+allowed-tools: [embeddings_status, stale_entries, embed, embeddings_lag]
 context: none
 ---
 # Embed
@@ -20,14 +20,13 @@ Keep a list `embed_errors`, empty to begin with. The outcome is `done` unless st
 
 ## Steps
 
-1. CALL `reference` with `doc` `embeddings` and `section` `Dependency Detection`.
-2. CALL `embeddings_status`. If it returns `absent`, the corpus has no embeddings: set `embeddings` to `skipped` and go to step 5.
+1. Read the reference at the end of this node.
+2. CALL `embeddings_status`, which returns one of the four words of "Dependency Detection". If it returns `absent`, the corpus has no embeddings: set `embeddings` to `skipped` and go to step 5.
 3. CALL `stale_entries`. If the list it returns is not empty, set `embeddings` to `deferred`, embed nothing, and go to step 5; the outcome is `deferred`.
 4. What `embeddings_status` returned in step 2:
    - `ready`: CALL `embed`. If it returns `ok` true, set `embeddings` to `updated`; otherwise set it to `skipped` and add `embedding failed: <error>` to `embed_errors`, `<error>` being the `error` it returned.
    - `no-model`: set `embeddings` to `no-model`. Never download the model here.
    - `not-installed`: set `embeddings` to `not-installed`.
-   - anything else, or nothing: set `embeddings` to `skipped` and add `detect.py printed <output>` to `embed_errors`, `<output>` being what it returned or `nothing`.
 5. CALL `embeddings_lag`. It returns a number, which is `embeddings_lag`, or null when there is no embeddings table. If it returns an error, `embeddings_lag` is null and `embedding lag not computed: <error>` is added to `embed_errors`.
 6. EXIT with the outcome (`deferred` when step 3 deferred, otherwise `done`) and outputs `embeddings`, `embeddings_lag` and `embed_errors`.
 
@@ -37,3 +36,7 @@ Keep a list `embed_errors`, empty to begin with. The outcome is `done` unless st
 |-------|-----------|
 | `embed` fails (step 4) | `embeddings` is `skipped`; add `embedding failed: <error>` to `embed_errors`. |
 | `embeddings_lag` returns an error (step 5) | `embeddings_lag` is null; add `embedding lag not computed: <error>` to `embed_errors`. |
+
+## Reference
+
+{{include includes/embeddings.md}}

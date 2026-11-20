@@ -27,7 +27,6 @@ SHOWN = {   # each tool and the arguments the model gives it
 def scanned(path: str) -> dict:
     return {
         "path": path, "title": path, "summary": f"{path}, rescanned.", "tags": [], "keywords": [], "category": "guide",
-        "content_type": "markdown", "size": "standard", "grep_hint": None, "headings": [],
     }
 
 
