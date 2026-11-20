@@ -296,3 +296,51 @@ def test_no_node_loads_a_reference_file():
     for node in sorted((ROOT / "nodes").glob("*.md")):
         text = node.read_text()
         assert "reference/" not in text and "scripts/" not in text and "CALL `load`" not in text, node
+
+
+# --- prepare-base, check-upstream ---------------------------------------------------------------------------------------
+
+def test_prepare_base_declares_its_contract(instance):
+    node = instance.nodes["prepare-base"]
+    assert set(node.contract.inputs) == set() and set(node.contract.outputs) == set()
+    assert node.contract.exits == ("prepared", "failed") and node.allowed_tools == ("shell__run",)
+
+
+def test_check_upstream_declares_its_contract(instance):
+    node = instance.nodes["check-upstream"]
+    assert set(node.contract.inputs) == set() and set(node.contract.outputs) == set()
+    assert node.contract.exits == ("behind", "current", "failed") and node.allowed_tools == ("shell__run", "files__read_text_file", "corpus_status")
+
+
+async def test_prepare_base_names_its_commands(corpus, instructions):
+    text = await filled_procedure(instructions, "prepare-base", {})
+    for command in ("status --porcelain", "checkout main", "fetch --prune origin", "merge --ff-only origin/main", "rev-list --count origin/main..HEAD"):
+        assert command in text
+    assert "timeout" not in text and "{{" not in text
+
+
+async def test_prepare_base_prepares_a_clean_clone(corpus, run):
+    assert (await run("prepare-base", {}))["outcome"] == "prepared"
+
+
+async def test_prepare_base_refuses_a_base_ahead_of_origin(corpus, run):   # the library's regression: the publish branch would carry the commit
+    corpus.make_ahead()
+    result = await run("prepare-base", {}, case="ahead")
+    assert result["outcome"] == "failed" and "1 commit" in result["outputs"]["reason"]
+    assert corpus.git("rev-list", "--count", "origin/main..main") == "1"   # the real command printed 1; nothing moved
+
+
+async def test_prepare_base_leaves_the_clone_on_the_base_branch_fast_forwarded(corpus, run):
+    corpus.git("checkout", "-q", "-b", "side")
+    sha = corpus.advance_origin()
+    assert (await run("prepare-base", {}))["outcome"] == "prepared"
+    assert corpus.git("branch", "--show-current") == "main" and corpus.git("rev-parse", "HEAD") == sha
+
+
+async def test_the_head_check_is_one_include(corpus, instructions):
+    text = await filled_procedure(instructions, "check-upstream", {})
+    assert "git ls-remote" in text and "refs/heads/" in text and "{{" not in text
+
+
+async def test_check_upstream_exits_behind_when_the_source_is_behind(corpus, run):
+    assert (await run("check-upstream", {}))["outcome"] == "behind"

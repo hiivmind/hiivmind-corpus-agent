@@ -1,0 +1,6 @@
+[
+  [["files__read_text_file", {"path": "@CORPUS@/config.yaml"}]],
+  [["shell__run", {"command": "git ls-remote @UPSTREAM@ refs/heads/main"}]],
+  [["corpus_status", {"observed": [{"id": "docs", "head": "@NEW_SHA@"}]}]],
+  [["exit", {"outcome": "behind"}]]
+]

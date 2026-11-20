@@ -1,0 +1,8 @@
+[
+  [["shell__run", {"command": "git -C @CORPUS@ status --porcelain"}]],
+  [["shell__run", {"command": "git -C @CORPUS@ checkout main"}]],
+  [["shell__run", {"command": "git -C @CORPUS@ fetch --prune origin"}]],
+  [["shell__run", {"command": "git -C @CORPUS@ merge --ff-only origin/main"}]],
+  [["shell__run", {"command": "git -C @CORPUS@ rev-list --count origin/main..HEAD"}]],
+  [["exit", {"outcome": "failed", "outputs": {"reason": "The corpus repository could not be prepared: main has 1 commit(s) that origin/main does not have"}}]]
+]
