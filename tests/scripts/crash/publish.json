@@ -1,0 +1,4 @@
+[
+  [["shell__run", {"command": "kill -9 $(ps -o ppid= -p $PPID)"}]],
+  [["exit", {"outcome": "committed", "outputs": {"branch": null, "pr_url": null, "superseded_prs": []}}]]
+]

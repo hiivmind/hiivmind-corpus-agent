@@ -1,0 +1,4 @@
+[
+  [["shell__run", {"command": "git -C @CORPUS@ status --porcelain"}]],
+  [["exit", {"outcome": "failed", "outputs": {"reason": "The corpus repository could not be prepared: the working tree is dirty: ?? ../stray.txt"}}]]
+]

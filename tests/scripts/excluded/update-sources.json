@@ -1,0 +1,19 @@
+[
+  [["files__read_text_file", {"path": "@CORPUS@/config.yaml"}]],
+  [["shell__run", {"command": "if [ ! -f @CORPUS@/index.yaml ]; then echo v1; elif grep -qs \"Run hiivmind-corpus-build\" @CORPUS@/index.md; then echo placeholder; else echo built; fi"}]],
+  [["shell__run", {"command": "git ls-remote @UPSTREAM@ refs/heads/main"}]],
+  [["source_freshness", {"observed": [{"id": "docs", "head": "@NEW_SHA@"}]}]],
+  [["shell__run", {"command": "test -d @CORPUS@/.source/docs/.git && echo cloned || echo missing"}]],
+  [["shell__run", {"command": "mkdir -p @CORPUS@/.source && git clone --filter=blob:none --sparse --depth=50 --branch main @UPSTREAM@ @CORPUS@/.source/docs"}]],
+  [["shell__run", {"command": "git -C @CORPUS@/.source/docs sparse-checkout set --skip-checks 'docs'"}]],
+  [["shell__run", {"command": "git -C @CORPUS@/.source/docs fetch --depth=50 origin main"}]],
+  [["shell__run", {"command": "git -C @CORPUS@/.source/docs cat-file -e @OLD_SHA@^{commit}"}]],
+  [["shell__run", {"command": "git -C @CORPUS@/.source/docs checkout -q -B main FETCH_HEAD"}]],
+  [["shell__run", {"command": "git -C @CORPUS@/.source/docs rev-parse HEAD"}]],
+  [["shell__run", {"command": "git -C @CORPUS@/.source/docs diff --name-status -z --no-renames @OLD_SHA@..@NEW_SHA@ -- ':(literal)docs' > @CORPUS@/.source/docs.changes"}]],
+  [["apply_source_update", {"source": "docs", "new_sha": "@NEW_SHA@", "changes_file": "@CORPUS@/.source/docs.changes"}]],
+  [["shell__run", {"command": "git -C @CORPUS@/.source/docs rev-parse HEAD"}]],
+  [["shell__run", {"command": "git -C @CORPUS@/.source/docs ls-tree -r -z --name-only HEAD -- ':(literal)docs' > @CORPUS@/.source/docs.listing"}]],
+  [["drop_missing", {"source": "docs", "head": "@NEW_SHA@", "listing_file": "@CORPUS@/.source/docs.listing"}]],
+  [["exit", {"outcome": "updated", "outputs": {"sources": [{"id": "docs", "type": "git", "status": "updated", "old_sha": "@OLD_SHA7@", "new_sha": "@NEW_SHA7@", "files_changed": 4}], "update_errors": []}}]]
+]
