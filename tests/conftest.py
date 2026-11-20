@@ -1,4 +1,4 @@
-"""The corpus fixtures (the `Corpus` of the package's `corpus_fixture`), and `run` and `job` for the nodes and the sequence, on the facade and the scripted backend."""
+"""The corpus fixtures (the `Corpus` of `tests/corpus_fixture.py`), and `run` and `job` for the nodes and the sequence, on the facade and the scripted backend."""
 
 from datetime import date
 
@@ -10,7 +10,7 @@ from agent_core.core.instance import load_instance
 from agent_core.core.registry import provider
 from agent_core.core.settings import load_settings
 
-from corpus_fixture import Corpus, make_corpus
+from tests.corpus_fixture import Corpus, make_corpus
 from tests.helpers import ROOT
 
 INSTANCE_YAML = ROOT / "instance.yaml"
@@ -76,10 +76,9 @@ def corpus_v1_tiered(monkeypatch, _current, tmp_path):
 
 
 @pytest.fixture
-def corpus_v1_table(monkeypatch, _current, tmp_path):
-    """A v1 corpus whose `index.md` lists `a.md` and `b.md` in a table; `.source/docs/` checked out at `first_sha`. One test
-    uses one corpus fixture."""
-    return _make(monkeypatch, _current, tmp_path, checkout=True, v1="table")
+def corpus_drafts(monkeypatch, _current, tmp_path):
+    """`corpus` whose upstream also has `docs/drafts/e.md` and whose config skips the section `drafts`. One test uses one corpus fixture."""
+    return _make(monkeypatch, _current, tmp_path, drafts=True)
 
 
 @pytest.fixture
@@ -140,13 +139,30 @@ def instructions(_current, monkeypatch):
 @pytest.fixture
 def job(_current, monkeypatch):
     """`await job(case="ok", resume=None, *, sequence="refresh", params=None)`: the sequence on the facade, the `SequenceResult`.
-    Every run of a test keeps its directory in one `runs/`, so one journal holds them all and `resume` (a run id) finds the
+    `sent(node)` then gives what the backend was sent. Every run of a test keeps its directory in one `runs/`, so one journal holds them all and `resume` (a run id) finds the
     run it names."""
     async def job(case: str = "ok", resume: str | None = None, *, sequence: str = "refresh", params: dict | None = None):
         corpus: Corpus = _current["corpus"]
         _scripted(monkeypatch, corpus, case)
         async with _open(corpus, params) as harness:
-            if resume:
-                return await harness.sequences.resume(resume)
-            return await harness.sequences.run(sequence, {})
+            try:
+                if resume:
+                    return await harness.sequences.resume(resume)
+                return await harness.sequences.run(sequence, {})
+            finally:
+                sent: dict[str, list[str]] = {}
+                for event in harness.events.record():
+                    if isinstance(event, ModelRequested):
+                        for part in event.parts:
+                            if part.kind == "instructions":
+                                sent.setdefault(event.label.partition("#")[0], []).append(part.text)
+                _current["sent"] = sent
     return job
+
+
+@pytest.fixture
+def sent(_current):
+    """`sent(node) -> list[str]`: the instruction texts the scripted backend was sent for the node in the last `job` of this test."""
+    def sent(node: str) -> list[str]:
+        return _current["sent"].get(node, [])
+    return sent
