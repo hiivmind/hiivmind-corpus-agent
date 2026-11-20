@@ -11,26 +11,25 @@ settings:
   files: [config/base.yaml]
   env_prefix: HIIVMIND_CORPUS_
 tools:
-  prepare_base: tools.corpus:prepare_base
   corpus_ready: tools.corpus:corpus_ready
-  refresh_needed: tools.corpus:refresh_needed
+  index_is_v2: tools.corpus:index_is_v2
+  index_is_v1: tools.corpus:index_is_v1
+  graph_exists: tools.corpus:graph_exists
+  sources_handled: tools.corpus:sources_handled
   source_freshness: tools.corpus:source_freshness
+  corpus_status: tools.corpus:corpus_status
   stale_batches: tools.corpus:stale_batches
+  stale_entries: tools.corpus:stale_entries
+  locate_files: tools.corpus:locate_files
+  begin_update: tools.corpus:begin_update
   apply_source_update: tools.corpus:apply_source_update
   drop_missing: tools.corpus:drop_missing
   merge_scans: tools.corpus:merge_scans
   set_concepts: tools.corpus:set_concepts
   set_summary: tools.corpus:set_summary
-  stale_entries: tools.corpus:stale_entries
   verify_previews: tools.corpus:verify_previews
   embeddings_status: tools.corpus:embeddings_status
-  embed: tools.corpus:embed
   embeddings_lag: tools.corpus:embeddings_lag
-  reference: tools.corpus:reference
-  corpus_status: tools.corpus:corpus_status
-  index_is_v2: tools.corpus:index_is_v2
-  index_is_v1: tools.corpus:index_is_v1
-  sources_handled: tools.corpus:sources_handled
-  graph_exists: tools.corpus:graph_exists
+  embed: tools.corpus:embed
   migrate_index: tools.corpus:migrate_index
   validate_graph: tools.corpus:validate_graph

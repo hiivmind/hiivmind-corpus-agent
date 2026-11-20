@@ -41,7 +41,7 @@ def test_the_instance_loads(instance):
 async def test_the_instance_loads_and_offers_each_declared_tool(corpus):
     async with agent_core.open(INSTANCE_YAML, backend="scripted", settings=[corpus.settings_file]) as harness:
         functions, servers = set(harness.instance.functions), set(harness.instance.servers)
-        assert len(functions) == 23 and servers == {"shell", "files"}
+        assert len(functions) == 22 and servers == {"shell", "files"}
         for name, node in harness.instance.nodes.items():
             for tool in node.allowed_tools:
                 assert tool in functions or tool.partition("__")[0] in servers, f"{name}: {tool}"
