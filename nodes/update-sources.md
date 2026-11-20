@@ -15,19 +15,22 @@ outputs:
         error: {type: string}
   index_changes: {type: object, required: [added, modified, removed, stale_entries]}
   removed_ids: {type: array, items: {type: string}}
+  excluded_paths: {type: array, items: {type: string}}
   update_errors: {type: array, items: {type: string}}
 exits: [updated, current, declined, failed]
-allowed-tools: [shell__run, files__read_text_file, source_freshness, apply_source_update, drop_missing, reference]
+allowed-tools: [shell__run, files__read_text_file, source_freshness, apply_source_update, drop_missing]
+preconditions:
+  - {tool: begin_update, message: "The totals could not be started."}
 context: none
 ---
 # Update sources
 
-Brings the index of one corpus up to date with its sources. It finds the sources that are behind, updates their working copies, and has `apply_source_update` mark the index entries of changed files stale, add an entry for each new file, remove the entry of each deleted file, and record the commit each source is now at. It does not read the changed files: the `scan` node writes the metadata of the stale entries afterwards. The sources are worked one after another.
+Brings the index of one corpus up to date with its sources. It finds the sources that are behind, updates their working copies, writes what git says changed in each, and has `apply_source_update` mark the index entries of changed files stale, add an entry for each new file, remove the entry of each deleted file, and record the commit each source is now at. It does not read the changed files: the `scan` node writes the metadata of the stale entries afterwards. The sources are worked one after another.
 
 Corpus: {{settings.CORPUS_PATH}}.
 Sources to update: {{input.sources}}.
 
-Keep a list `update_errors`, empty to begin with; `index_changes` with `added` 0, `modified` 0, `removed` 0 and `stale_entries` empty; a list `removed_ids`, empty to begin with; and one record for each source looked at: `id`, `type`, `status`, `old_sha`, `new_sha`, `files_changed` and, for a source that failed or was skipped, `error`. A sha in a record is the first seven characters of the commit.
+Keep a list `update_errors`, empty to begin with, and one record for each source looked at: `id`, `type`, `status`, `old_sha`, `new_sha`, `files_changed` and, for a source that failed or was skipped, `error`. A sha in a record is the first seven characters of the commit; `<old_sha>` and `<new_sha>` in a command below are full shas, 40 characters. The tools keep the totals (`index_changes`, `removed_ids` and `excluded_paths`) themselves: the harness zeroed them before this node started, and you do not keep or give them.
 
 A shell command's result has an exit code. A command went well when its exit code is 0; "the command fails" below means its exit code is not 0.
 
@@ -45,9 +48,11 @@ Outputs: the sources to work on.
 ## Phase 2: Check freshness
 Outputs: the status of each source, and which sources are behind.
 
-6. CALL `source_freshness`. It returns one item for each source of `config.yaml`: `id`, `type`, `freshness` (`current`, `behind` or `unknown`) and `error`. Use the items of the sources chosen in step 5 only, in the order of `config.yaml`.
-7. For each chosen source whose `type` is not `git`: this instance does not handle that kind of source. Its record is `status: skipped-manual`, `old_sha` and `new_sha` null, `files_changed` 0, and `error` set to "source type `<type>` is not handled by this instance yet". Leave it alone in every later step.
-8. For each chosen git source:
+6. Look at the upstream of each chosen git source.
+{{include includes/sources/upstream-head.md}}
+7. CALL `source_freshness` with `observed`. It returns one item for each source of `config.yaml`: `id`, `type`, `freshness` (`current`, `behind` or `unknown`) and `error`. Use the items of the sources chosen in step 5 only, in the order of `config.yaml`.
+8. For each chosen source whose `type` is not `git`: this instance does not handle that kind of source. Its record is `status: skipped-manual`, `old_sha` and `new_sha` null, `files_changed` 0, and `error` set to "source type `<type>` is not handled by this instance yet". Leave it alone in every later step.
+9. For each chosen git source:
    - Its `freshness` is `unknown`: its record is `status: failed` with `error` set to the item's `error`, `old_sha` the first seven characters of `last_commit_sha`, `new_sha` null, `files_changed` 0. Add `<id>: <error>` to `update_errors`.
    - Its `freshness` is `current`: its record is `status: current`, `old_sha` and `new_sha` both the first seven characters of `last_commit_sha`, `files_changed` 0.
    - Its `freshness` is `behind`: it is to be updated, and its `old_sha` is the first seven characters of `last_commit_sha`.
@@ -57,24 +62,31 @@ Outputs: the new commit of each source that is behind.
 
 Update each source that is behind, one after the other. A source that fails does not stop the others: its record is `status: failed` with `error` set to what went wrong, its `new_sha` null and `files_changed` 0, `<id>: <error>` is added to `update_errors`, its entries are left as they were, and you go to step 13.
 
-The working copy of a source is `<clone>` = `{{settings.CORPUS_PATH}}/.source/<id>`, where `<id>` is the source's `id`. It is a sparse clone, as the "Sparse Checkout for Large Repositories" section of the `sources/git` document says. Never use the GitHub compare API to find the changed files (`gh api repos/<owner>/<repo>/compare/...`): it stops at 300 files and drops the rest without saying so. The changed files are found with a local `git diff` in the clone, which `apply_source_update` runs.
+The working copy of a source is `<clone>` = `{{settings.CORPUS_PATH}}/.source/<id>`, where `<id>` is the source's `id`.
 
-9. If no source is behind, there is nothing to apply: go to step 15.
-10. CALL `reference` with `doc` `sources/git` and `section` `Sparse Checkout for Large Repositories`.
+10. If no source is behind, there is nothing to apply: go to step 15.
 11. Take the first source that is behind, in the order of `config.yaml`, that has not been checked out or failed yet.
-12. Update its working copy and check out the head of its branch: `<commit>` is `FETCH_HEAD`, what step c fetches. When the steps below end with the source checked out, the commit `rev-parse` printed is the source's new commit, `<new_sha>`; its record's `new_sha` is its first seven characters.
+12. Update its working copy and check out the head of its branch: `<commit>` is `FETCH_HEAD`, what step c fetches. When the steps below end with the source checked out, the commit `rev-parse` printed (in full) is the source's new commit, `<new_sha>`; its record's `new_sha` is its first seven characters.
 {{include includes/sources/git.md}}
 13. If a source that is behind has not been checked out or failed yet, go to step 11.
 
 ## Phase 4: Apply changes to the index
 Outputs: `index_changes`, `removed_ids`.
 
-14. For each source that is checked out, in the order of `config.yaml`, CALL `apply_source_update` with `source` its `id`, `old_sha` its `last_commit_sha` in full and `new_sha` its `<new_sha>` of step 12 in full. It applies the diff to `index.yaml` and `graph.yaml`, records the new commit in `config.yaml`, and returns `files_changed`, `added`, `modified`, `removed`, `removed_ids`, `stale_entries` and `excluded`.
-    - It returns an error: the source fails with that error, as Phase 3 says; its entries stay as they were.
-    - Otherwise its record is `status: updated` with `files_changed` from the result. Add `added`, `modified` and `removed` to those of `index_changes`, its `stale_entries` to `index_changes`'s `stale_entries`, and its `removed_ids` to `removed_ids`. For each path in `excluded`, add `excluded-by-config: <path>` to `update_errors`.
-15. CALL `drop_missing` with `sources` set to `{"id": <id>, "status": <status>}` for each source looked at, from its record. It removes the entries whose files git says are gone from the source, and renders `index.md` when any went. Add the ids of its `removed` to `removed_ids`. If it returns an error, add `drop_missing failed: <error>` to `update_errors`.
-16. If a source has the status `updated`, render the index; the node's error list is `update_errors`. {{include includes/render-index.md}}
-17. If a source has the status `updated`, EXIT `updated`; otherwise EXIT `current`. The outputs are `sources` (the records of the sources, in the order of `config.yaml`, with `error` only on a source that failed or was skipped), `index_changes`, `removed_ids` and `update_errors`.
+14. For each source that is checked out, in order of `config.yaml`, do a and b. `<old_sha>` is the source's `last_commit_sha` in full, as `config.yaml` writes it; `<new_sha>` is the commit of step 12, in full. Write the file next to the clone, as the path says.
+    a. CALL `shell__run` with the command `git -C <clone> diff --name-status -z --no-renames <old_sha>..<new_sha> -- ':(literal)<docs_root>' > <clone>.changes`, `<docs_root>` being the source's `docs_root` and the path written out. When the source's `docs_root` is `.` or it has none, leave out ` -- ':(literal)<docs_root>'`. (`:(literal)` keeps a `docs_root` such as `src/app/[locale]` from being read as a glob.) If the command fails, the source fails.
+    b. CALL `apply_source_update` with `source` its `id`, `new_sha` its `<new_sha>` and `changes_file` the path `<clone>.changes`. It applies the changes to `index.yaml` and `graph.yaml`, records the new commit in `config.yaml`, adds to the totals and returns `files_changed`, `added`, `modified`, `removed`, `removed_ids`, `stale_entries`, `excluded` and `outside_docs_root`.
+       - It returns an error: the source fails with that error, as Phase 3 says; its entries stay as they were.
+       - Otherwise its record is `status: updated` with `files_changed` from the result.
+
+## Phase 5: Drop the entries whose files are gone
+Outputs: the entries removed that the diff could not show.
+
+15. For each source whose status is `updated` or `current`, in the order of `config.yaml`, do a to c.
+    a. CALL `shell__run` with the command `git -C <clone> rev-parse HEAD`. If it fails, or the source has no clone, leave the source alone: go on to the next. Otherwise the commit it printed is `<head>`, in full.
+    b. CALL `shell__run` with the command `git -C <clone> ls-tree -r -z --name-only HEAD -- ':(literal)<docs_root>' > <clone>.listing`, as in step 14, a: no pathspec when `docs_root` is `.` or none. If it fails, leave the source alone.
+    c. CALL `drop_missing` with `source` its `id`, `head` its `<head>` and `listing_file` the path `<clone>.listing`. It removes the entries whose files git says are gone from the source, and adds their ids to the totals. If it returns an error, add `drop_missing failed: <error>` to `update_errors`.
+16. If a source has the status `updated`, EXIT `updated`; otherwise EXIT `current`. EXIT with `sources` and `update_errors` only: `sources` holds the records of the sources, in the order of `config.yaml`, with `error` only on a source that failed or was skipped. `index_changes`, `removed_ids` and `excluded_paths` are recorded by the tools; do not give them.
 
 ## Errors
 
@@ -85,5 +97,6 @@ Outputs: `index_changes`, `removed_ids`.
 | A source whose freshness is unknown (step 8) | The source is `failed` with its error; the other sources go on. |
 | A clone, fetch or checkout command fails (step 12) | That source is `failed` with the error; its entries stay as they were; the other sources go on. |
 | A deepen leaves the commit unresolved (step 12, d) | The source is `failed`; the other sources go on. |
-| `apply_source_update` returns an error (step 14) | That source is `failed` with the error; its entries stay as they were. |
+| The diff command fails, or `apply_source_update` returns an error (step 14) | That source is `failed` with the error; its entries stay as they were. |
+| `rev-parse` or `ls-tree` fails (step 15) | The source is left alone. |
 | `drop_missing` returns an error (step 15) | Add `drop_missing failed: <error>` to `update_errors`. |

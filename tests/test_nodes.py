@@ -57,39 +57,61 @@ async def test_scan_takes_a_batch(corpus_stale, instructions):
 def test_update_sources_declares_its_contract(instance):
     node = instance.nodes["update-sources"]
     assert set(node.contract.inputs) == {"sources"}
-    assert set(node.contract.outputs) == {"sources", "index_changes", "removed_ids", "update_errors"}
+    assert set(node.contract.outputs) == {"sources", "index_changes", "removed_ids", "excluded_paths", "update_errors"}
+    assert node.output_schemas["excluded_paths"] == {"type": "array", "items": {"type": "string"}}
     source = node.output_schemas["sources"]["items"]
     assert source["required"] == ["id", "type", "status", "old_sha", "new_sha", "files_changed"]
     assert source["properties"]["status"]["enum"] == ["current", "updated", "failed", "skipped-manual"]
     assert node.output_schemas["index_changes"]["required"] == ["added", "modified", "removed", "stale_entries"]
     assert node.contract.exits == ("updated", "current", "declined", "failed") and node.context == "none"
+    assert node.allowed_tools == ("shell__run", "files__read_text_file", "source_freshness", "apply_source_update", "drop_missing")
+    assert [p.tool for p in node.preconditions] == ["begin_update"]
 
 
 def test_update_sources_edits_no_yaml_by_text(instance):          # CRP-4
     tools = instance.nodes["update-sources"].allowed_tools
-    assert "files__edit_file" not in tools and "files__write_file" not in tools
-    assert {"source_freshness", "apply_source_update", "drop_missing", "reference"} <= set(tools)
+    assert "files__edit_file" not in tools and "files__write_file" not in tools and "reference" not in tools
+    assert {"source_freshness", "apply_source_update", "drop_missing"} <= set(tools)
 
 
-async def test_update_sources_applies_a_change_through_the_tool(corpus, run):
+async def test_update_sources_applies_a_change_through_the_tool(corpus, run):     # INS-11
     result = await run("update-sources", {"sources": "all"})
     assert result["outcome"] == "updated"
     assert result["outputs"] == {
         "sources": [{"id": "docs", "type": "git", "status": "updated", "old_sha": corpus.first_sha[:7], "new_sha": corpus.upstream_head[:7], "files_changed": 3}],
+        "update_errors": [],
         "index_changes": {"added": 1, "modified": 1, "removed": 1, "stale_entries": ["docs:a.md", "docs:d.md"]},
-        "removed_ids": ["docs:c.md"], "update_errors": [],
+        "removed_ids": ["docs:c.md"], "excluded_paths": [],
     }
     ids = [e["id"] for e in yaml.safe_load((corpus.path / "index.yaml").read_text())["entries"]]
     assert "docs:c.md" not in ids and corpus.entry("docs:a.md")["stale"] is True and corpus.entry("docs:d.md")["summary"] == "Pending re-scan"
     assert yaml.safe_load((corpus.path / "config.yaml").read_text())["sources"][0]["last_commit_sha"] == corpus.upstream_head
-    rendered = (corpus.path / "index.md").read_text()   # rendered by the real render-index.sh
-    assert "docs:d.md" in rendered and "docs:c.md" not in rendered
+
+
+async def test_update_sources_names_the_diff_and_listing_commands(corpus, instructions):
+    text = await filled_procedure(instructions, "update-sources", {"sources": "all"})
+    for needed in ("diff --name-status -z --no-renames", "ls-tree -r -z --name-only HEAD", ".changes", ".listing", ":(literal)"):
+        assert needed in text, needed
+    assert "excluded-by-config" not in text and "render-index" not in text
+
+
+async def test_update_sources_exit_omits_the_recorded_outputs(corpus, instructions):
+    text = await filled_procedure(instructions, "update-sources", {"sources": "all"})
+    assert "`sources` and `update_errors` only" in text
+    assert "`index_changes`, `removed_ids` and `excluded_paths`" in text and "record" in text
+
+
+async def test_update_sources_skips_a_source_with_no_clone_when_dropping(corpus, instructions):     # Review Focus 4
+    text = await filled_procedure(instructions, "update-sources", {"sources": "all"})
+    phase5 = text[text.index("## Phase 5"):]
+    assert 0 < phase5.index("rev-parse HEAD") < phase5.index("ls-tree")
+    assert "leave the source alone" in phase5 and phase5.index("leave the source alone") < phase5.index("ls-tree")
 
 
 async def test_update_sources_procedure_is_filled_with_the_corpus_and_the_sources(corpus, instructions):
     text = await filled_procedure(instructions, "update-sources", {"sources": "all"})
     assert f"Corpus: {corpus.path}." in text and "Sources to update: all." in text and "{{" not in text
-    assert f"cd {corpus.path} && bash ./render-index.sh index.yaml" in text   # the fragment, included and filled
+    assert "git ls-remote" in text   # the upstream-head include, filled
 
 
 async def test_update_sources_keeps_the_recipe_for_git_sources(corpus, instructions):
@@ -127,7 +149,7 @@ def test_checkout_sources_declares_its_contract(instance):
     assert node.output_schemas["checkouts"]["items"]["required"] == ["id", "status"]
     assert node.output_schemas["checkouts"]["items"]["properties"]["status"]["enum"] == ["checked-out", "failed"]
     assert node.contract.exits == ("done", "failed") and node.context == "none"
-    assert node.allowed_tools == ("shell__run", "files__read_text_file", "reference")
+    assert node.allowed_tools == ("shell__run", "files__read_text_file")
 
 
 def test_status_declares_its_contract(instance):
@@ -148,6 +170,11 @@ def test_graph_validate_declares_its_contract(instance):
     node = instance.nodes["graph-validate"]
     assert set(node.contract.inputs) == set() and set(node.contract.outputs) == {"concepts", "relationships", "issues", "valid"}
     assert node.contract.exits == ("valid", "invalid", "failed") and node.allowed_tools == ("validate_graph",) and node.context == "none"
+
+
+def test_excluded_paths_is_a_declared_input_of_the_fragment_and_of_publish(instance):     # INS-14
+    assert "excluded_paths" in instance.topology.fragments["enrich-and-publish"].inputs
+    assert "excluded_paths" in instance.nodes["publish"].contract.inputs
 
 
 async def test_update_sources_and_checkout_sources_include_the_git_fragment(corpus, instructions):

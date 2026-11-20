@@ -5,6 +5,7 @@ inputs:
   sources: what update-sources found for each source
   index_changes: the counts of entries added, modified and removed
   removed_ids: the ids removed because their files are gone
+  excluded_paths: the paths left out of the index by build.skip_sections
   enriched_ids: the ids of the entries the scans updated
   skipped_entries: the entries skipped, each with its reason
   index_errors: the problems of the index node
@@ -43,6 +44,7 @@ What the nodes before this one reported (each reads "not given" when that node d
 - Sources: {{input.sources}}
 - Index changes: {{input.index_changes}}
 - Removed because their files are gone: {{input.removed_ids}}
+- Excluded by `build.skip_sections` (no entry added): {{input.excluded_paths}}
 - Enriched: {{input.enriched_ids}}
 - Skipped: {{input.skipped_entries}}
 - Scan runs that failed: {{input.scans_failures}}
@@ -81,7 +83,7 @@ Outputs: `branch`.
 12. Write the message. Its first line is the title, which names the work from what the nodes reported, the first rule that holds: `corpus: migrate <today>` when Migrated is given (it does not read "not given"); `corpus: refresh <today>` when Sources is given; otherwise `corpus: enrich <today>`. Then an empty line; then the body, in Markdown, in these sections, each list showing at most 50 items and then a line `- and <n> more`:
     - `## Migration`, only when Migrated is given: `- Migrated: <migrated> entries (<strategy>)`, then `- Skipped: <n>` with each entry skipped in the migration and its reason.
     - `## Sources`: one line for each source, `- <Updated|Current|Failed|Skipped as manual>: `<id>` (<type>)`, and for an updated source `: <old_sha> -> <new_sha>, <files_changed> files changed`, for a failed or skipped one `: <error>`; `- none looked at` when there is none.
-    - `## Index`: `- <added> added, <modified> modified, <removed> removed`; `- Removed <n> entries whose files are gone from the source` with their ids, when there are any; `- Enriched: <n>` with the ids of the entries enriched; `- Skipped: <n>` with each skipped entry and its reason, and each failed scan run with its files and reason.
+    - `## Index`: `- <added> added, <modified> modified, <removed> removed`; `- Removed <n> entries whose files are gone from the source` with their ids, when there are any; `- Excluded by build.skip_sections: <n>` and the paths, left out when none; `- Enriched: <n>` with the ids of the entries enriched; `- Skipped: <n>` with each skipped entry and its reason, and each failed scan run with its files and reason.
     - `## Verification`: `- Sampled <sampled>, failed <failed>` and each drift entry, or `- not run`.
     - `## New concept candidates (for the reviewer's decision)`: each candidate's label and evidence, or `- none`.
     - `## Embeddings`: `- <embeddings>`, and `, lag <n>` when the lag is a number.

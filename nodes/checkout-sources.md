@@ -14,7 +14,7 @@ outputs:
         error: {type: string}
   checkout_errors: {type: array, items: {type: string}}
 exits: [done, failed]
-allowed-tools: [shell__run, files__read_text_file, reference]
+allowed-tools: [shell__run, files__read_text_file]
 context: none
 ---
 # Check out sources
@@ -27,16 +27,15 @@ Keep a list `checkout_errors`, empty to begin with, and one record for each sour
 
 A shell command's result has an exit code. A command went well when its exit code is 0; "the command fails" below means its exit code is not 0.
 
-The working copy of a source is `<clone>` = `{{settings.CORPUS_PATH}}/.source/<id>`, where `<id>` is the source's `id`. It is a sparse clone, as the "Sparse Checkout for Large Repositories" section of the `sources/git` document says.
+The working copy of a source is `<clone>` = `{{settings.CORPUS_PATH}}/.source/<id>`, where `<id>` is the source's `id`.
 
-A source that fails does not stop the others: its record is `status: failed` with `error` set to what went wrong, `<id>: <error>` is added to `checkout_errors`, and you go to step 5.
+A source that fails does not stop the others: its record is `status: failed` with `error` set to what went wrong, `<id>: <error>` is added to `checkout_errors`, and you go to step 4.
 
 ## Steps
 
 1. CALL `files__read_text_file` with the path `{{settings.CORPUS_PATH}}/config.yaml`. If it returns an error, EXIT `failed` with output `checkout_errors` set to a list holding that error, and `checkouts` empty.
-2. CALL `reference` with `doc` `sources/git` and `section` `Sparse Checkout for Large Repositories`.
-3. Take the first source of `config.yaml`, in its order, that has not been checked out or failed yet.
-4. Check out the commit the index was built at: `<commit>` is the source's `last_commit_sha`, as `config.yaml` writes it. When the steps below end with the source checked out, its record is `status: checked-out`.
+2. Take the first source of `config.yaml`, in its order, that has not been checked out or failed yet.
+3. Check out the commit the index was built at: `<commit>` is the source's `last_commit_sha`, as `config.yaml` writes it. When the steps below end with the source checked out, its record is `status: checked-out`.
 {{include includes/sources/git.md}}
-5. If a source has not been checked out or failed yet, go to step 3.
-6. If a source failed, EXIT `failed`; otherwise EXIT `done`. The outputs are `checkouts` (the records, in the order of `config.yaml`, with `error` only on a source that failed) and `checkout_errors`.
+4. If a source has not been checked out or failed yet, go to step 2.
+5. If a source failed, EXIT `failed`; otherwise EXIT `done`. The outputs are `checkouts` (the records, in the order of `config.yaml`, with `error` only on a source that failed) and `checkout_errors`.
