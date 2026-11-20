@@ -65,6 +65,8 @@ def assert_refreshed(corpus, ran, source: str, today: str) -> None:
     assert a["stale"] is False and a["summary"].strip() and a["summary"] not in (FIRST_SUMMARY, PENDING), a
     assert f"{source}:d.md" in entries and f"{source}:c.md" not in entries, sorted(entries)
     assert not [id for id, e in entries.items() if e.get("stale")], "entries still stale"
+    assert facts["index_changes"] == {"added": 1, "modified": 1, "removed": 1, "stale_entries": [f"{source}:a.md", f"{source}:d.md"]}
+    assert facts["removed_ids"] == [f"{source}:c.md"]
 
     # index.md was rendered again, and the commit holds it.
     rendered = shown(corpus, branch, "index.md")

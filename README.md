@@ -7,20 +7,21 @@ A corpus instance of [agent-core](../hiivmind-agent-core): the refresh of a docu
 | Path | What it holds |
 |---|---|
 | `instance.yaml` | the instance: backend, servers, settings class, and the tools `agent_core.open` registers through `harness.tools.register` |
-| `nodes/<name>.md` | one instruction file per node: `update-sources`, `scan`, `index`, `concepts`, `verify`, `embed`, `publish`, `checkout-sources`, `status`, `migrate`, `graph-validate` |
-| `includes/` | prose the nodes share, pulled in with `{{include includes/...}}` |
-| `tools/corpus.py` | the tools: thin functions over `hiivmind-corpus-lib` (`hiivmind_corpus`) |
+| `nodes/<name>.md` | one instruction file per node: `update-sources`, `scan`, `index`, `concepts`, `verify`, `embed`, `publish`, `checkout-sources`, `status`, `migrate`, `graph-validate`, `prepare-base`, `check-upstream` (13 nodes) |
+| `includes/` | the documents of `hiivmind-corpus-lib` (`embeddings.md`, `entry-metadata.md`, `freshness.md`, `graph.md`, `index-fields.md`) and the git procedures in `includes/sources/` (`git.md`, `upstream-head.md`), pulled in with `{{include includes/...}}` |
+| `tools/corpus.py` | the 22 tools: thin functions over `Corpus` of `hiivmind-corpus-lib` (`hiivmind_corpus`) |
 | `topology.yaml` | the nodes, the fragment `enrich-and-publish` and the sequences |
 | `settings.py`, `config/*.yaml` | the settings class and one settings file per corpus, over `config/base.yaml` |
 | `POLICY.md` | the policy: no force push, no history rewrite |
 | `tests/` | tests through the facade, on the scripted backend |
-| `v0/` | the previous tree, kept for its history |
 
 `hiivmind-corpus-lib` and `hiivmind-agent-core` (branch `rebuild` until the cutover) are checked out beside this repository; `pyproject.toml` takes both by path, so `uv sync` fails without them.
 
 ## Topology
 
 The sequences are `refresh`, `status`, `enrich`, `migrate` and `graph-validate`. Each runs its checks first, with no model call.
+
+`refresh`, `enrich` and `migrate` start at the node `prepare-base`, which puts the corpus on its base branch, level with origin, and link to `refresh-prepared`, `enrich-prepared` and `migrate-prepared`: the core runs a sequence's checks before its start, so the checks of the `-prepared` sequence run on the prepared tree. `refresh-prepared` starts at `check-upstream`; `enrich-prepared` and `migrate-prepared` start at `checkout-sources`.
 
 `refresh`, `enrich` and `migrate` end in the same tail, declared once as the fragment `enrich-and-publish`: `scan` fans out over the stale batches, then `index`, `concepts`, `verify`, `embed` and `publish`. Each of the three sequences names the fragment. `publish` is also named at sequence level in `refresh`, so a skipped `update-sources` still publishes.
 
@@ -37,7 +38,7 @@ uv run agent-core job instance.yaml <sequence> --settings config/<corpus>.yaml [
 - A run is recorded in `runs/<sequence>-<UTC start>-<id>/record.json`; `--resume <run id>` continues a crashed run.
 - Exit code: 0 when the sequence ends `done` or `stopped`, 1 when it ends `failed`, 2 when it could not start.
 
-Needs `git`, `yq` (the Go one), `npx`, `gh` when `PUSH` is true, the provider credential (`ANTHROPIC_API_KEY`) in the environment, and `AGENT_CORE_LANGGRAPH_MODEL`, which is required, in `provider:model` form with no default, for example `anthropic:claude-sonnet-5-5`. Without it the CLI exits 2.
+Needs `git`, `npx`, `gh` when `PUSH` is true, the provider credential (`ANTHROPIC_API_KEY`) in the environment, and `AGENT_CORE_LANGGRAPH_MODEL`, which is required, in `provider:model` form with no default, for example `anthropic:claude-sonnet-5-5`. Without it the CLI exits 2.
 
 ## Tests
 
