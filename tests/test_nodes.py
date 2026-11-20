@@ -344,3 +344,8 @@ async def test_the_head_check_is_one_include(corpus, instructions):
 
 async def test_check_upstream_exits_behind_when_the_source_is_behind(corpus, run):
     assert (await run("check-upstream", {}))["outcome"] == "behind"
+
+
+async def test_the_head_check_reads_stdout_and_an_empty_one_is_an_error(corpus, instructions):
+    text = await filled_procedure(instructions, "check-upstream", {})
+    assert "STDOUT" in text and "no such branch" in text and "stderr" in text
