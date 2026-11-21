@@ -45,6 +45,7 @@ requires-dist = [
     { name = "langgraph", marker = "extra == 'langgraph'", specifier = ">=1.2,<2" },
     { name = "langgraph-checkpoint-sqlite", marker = "extra == 'langgraph'", specifier = ">=3,<4" },
     { name = "mcp", specifier = ">=1.30,<2" },
+    { name = "mountainash-auth-openai", marker = "extra == 'openai'", git = "ssh://git@github.com/mountainash-io/mountainash-auth-openai.git?rev=16b378a893b3560556592147ed87bc927b204c93" },
     { name = "mountainash-settings", git = "ssh://git@github.com/mountainash-io/mountainash-settings.git?rev=7a4b43bf4789b43a808ca1520012fc413d221e64" },
     { name = "openai", marker = "extra == 'openai'", specifier = ">=2,<3" },
     { name = "pydantic", specifier = ">=2" },
