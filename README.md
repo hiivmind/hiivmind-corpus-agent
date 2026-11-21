@@ -9,7 +9,7 @@ A corpus instance of [agent-core](../hiivmind-agent-core): the refresh of a docu
 | `instance.yaml` | the instance: backend, servers, settings class, and the tools `agent_core.open` registers through `harness.tools.register` |
 | `nodes/<name>.md` | one instruction file per node: `update-sources`, `scan`, `index`, `concepts`, `verify`, `embed`, `publish`, `checkout-sources`, `status`, `migrate`, `graph-validate`, `prepare-base`, `check-upstream` (13 nodes) |
 | `includes/` | the documents of `hiivmind-corpus-lib` (`embeddings.md`, `entry-metadata.md`, `freshness.md`, `graph.md`, `index-fields.md`) and the git procedures in `includes/sources/` (`git.md`, `upstream-head.md`), pulled in with `{{include includes/...}}` |
-| `tools/corpus.py` | the 22 tools: thin functions over `Corpus` of `hiivmind-corpus-lib` (`hiivmind_corpus`) |
+| `tools/corpus.py` | the 22 tools: thin functions over `Corpus` of `hiivmind-corpus-lib` (`hiivmind_corpus_lib`) |
 | `topology.yaml` | the nodes, the fragment `enrich-and-publish` and the sequences |
 | `settings.py`, `config/*.yaml` | the settings class and one settings file per corpus, over `config/base.yaml` |
 | `POLICY.md` | the policy: no force push, no history rewrite |

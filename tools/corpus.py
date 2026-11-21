@@ -8,7 +8,7 @@ no rendering of their own: each package write renders itself.
 import dataclasses
 from pathlib import Path
 
-from hiivmind_corpus import Corpus, CorpusError, Head, Listing, Unobserved, parse_name_status
+from hiivmind_corpus_lib import Corpus, CorpusError, Head, Listing, Unobserved, parse_name_status
 
 NODE_KINDS = {"git"}   # the source types the nodes of this instance observe and diff
 

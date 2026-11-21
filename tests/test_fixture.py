@@ -1,7 +1,7 @@
 """The fixture corpus is built through the package."""
 
-from hiivmind_corpus import Config, Graph, Index
-from hiivmind_corpus import Corpus as Package
+from hiivmind_corpus_lib import Config, Graph, Index
+from hiivmind_corpus_lib import Corpus as Package
 
 from tests.helpers import ROOT
 

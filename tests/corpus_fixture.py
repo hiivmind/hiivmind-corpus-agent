@@ -27,11 +27,11 @@ from types import SimpleNamespace
 
 import yaml
 
-from hiivmind_corpus import NULL, Config, Corpus as Package, Entry, Graph, Index
-from hiivmind_corpus.config import Build, CorpusInfo, IndexInfo, Settings
-from hiivmind_corpus.graph import Concept, GraphMeta
-from hiivmind_corpus.index import IndexMeta
-from hiivmind_corpus.sources import SOURCE_KINDS, GitSource
+from hiivmind_corpus_lib import NULL, Config, Corpus as Package, Entry, Graph, Index
+from hiivmind_corpus_lib.config import Build, CorpusInfo, IndexInfo, Settings
+from hiivmind_corpus_lib.graph import Concept, GraphMeta
+from hiivmind_corpus_lib.index import IndexMeta
+from hiivmind_corpus_lib.sources import SOURCE_KINDS, GitSource
 
 BASE_SETTINGS = {"BASE_BRANCH": "main", "PUSH": False}   # the instance's config/base.yaml, under the generated settings file
 THEN = datetime(2026, 1, 1, tzinfo=UTC)
