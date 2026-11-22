@@ -72,7 +72,7 @@ def test_update_sources_declares_its_contract(instance):
     assert node.output_schemas["index_changes"]["required"] == ["added", "modified", "removed", "stale_entries"]
     assert node.contract.exits == ("updated", "current", "declined", "failed") and node.context == "none"
     assert node.allowed_tools == ("shell__run", "files__read_text_file", "source_freshness", "apply_source_update", "drop_missing")
-    assert [p.tool for p in node.preconditions] == ["begin_update"]
+    assert [p.tool for p in node.preconditions] == ["index_is_v2", "corpus_ready", "begin_update"]
 
 
 def test_update_sources_edits_no_yaml_by_text(instance):          # CRP-4
@@ -133,11 +133,11 @@ async def test_update_sources_keeps_the_recipe_for_git_sources(corpus, instructi
 
 
 def test_update_sources_loops_over_sources_by_their_checkout_not_their_status():   # final review 1
-    """A source is `updated` only after `apply_source_update` (step 14), so Phase 3's loop cannot take "updated" as done."""
+    """A source is `updated` only after `apply_source_update` (step 13), so Phase 3's loop cannot take "updated" as done."""
     steps = {int(n): line for n, line in re.findall(r"(?m)^(\d+)\. (.*)$", (ROOT / "nodes" / "update-sources.md").read_text())}
-    assert "checked out" in steps[11] and "updated" not in steps[11]
-    assert "checked out" in steps[12] and "is now checked out" in (ROOT / "includes" / "sources" / "git.md").read_text()
-    assert "checked out" in steps[13] and "updated" not in steps[13]
+    assert "checked out" in steps[10] and "updated" not in steps[10]
+    assert "checked out" in steps[11] and "is now checked out" in (ROOT / "includes" / "sources" / "git.md").read_text()
+    assert "checked out" in steps[12] and "updated" not in steps[12]
 
 
 def test_a_node_that_fails_on_purpose_names_the_error_in_its_error_list():   # final review 2: `reason` is not a declared output

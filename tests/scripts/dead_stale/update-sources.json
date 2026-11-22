@@ -1,6 +1,5 @@
 [
   [["files__read_text_file", {"path": "@CORPUS@/config.yaml"}]],
-  [["shell__run", {"command": "if [ ! -f @CORPUS@/index.yaml ]; then echo v1; elif grep -qs \"Run hiivmind-corpus-build\" @CORPUS@/index.md; then echo placeholder; else echo built; fi"}]],
   [["shell__run", {"command": "git ls-remote @UPSTREAM@ refs/heads/main"}]],
   [["source_freshness", {"observed": [{"id": "docs", "head": "@NEW_SHA@"}]}]],
   [["shell__run", {"command": "git -C @CORPUS@/.source/docs rev-parse HEAD"}]],
