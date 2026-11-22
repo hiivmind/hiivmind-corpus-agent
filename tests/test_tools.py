@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
-from hiivmind_corpus import CorpusError, ExtraMissing
+from hiivmind_corpus_lib import CorpusError, ExtraMissing
 
 from agent_core.core.checks import StateView
 from agent_core.core.functions import import_declared
