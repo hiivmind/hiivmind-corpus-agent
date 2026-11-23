@@ -13,7 +13,7 @@ resolution-markers = [
 [[package]]
 name = "agent-core"
 version = "0.1.0"
-source = { directory = "../hiivmind-agent-core" }
+source = { editable = "../hiivmind-agent-core" }
 dependencies = [
     { name = "dbos" },
     { name = "jsonschema" },
@@ -66,7 +66,7 @@ dev = [
 [[package]]
 name = "agent-tools"
 version = "0.1.0"
-source = { directory = "../hiivmind-agent-core/packages/agent-tools" }
+source = { editable = "../hiivmind-agent-core/packages/agent-tools" }
 dependencies = [
     { name = "mcp" },
 ]
@@ -666,9 +666,9 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "agent-core", extras = ["langgraph", "anthropic"], directory = "../hiivmind-agent-core" },
-    { name = "agent-tools", directory = "../hiivmind-agent-core/packages/agent-tools" },
-    { name = "hiivmind-corpus-lib", extras = ["embeddings"], directory = "../hiivmind-corpus-lib" },
+    { name = "agent-core", extras = ["langgraph", "anthropic"], editable = "../hiivmind-agent-core" },
+    { name = "agent-tools", editable = "../hiivmind-agent-core/packages/agent-tools" },
+    { name = "hiivmind-corpus-lib", extras = ["embeddings"], editable = "../hiivmind-corpus-lib" },
     { name = "mountainash-settings", git = "ssh://git@github.com/mountainash-io/mountainash-settings.git?rev=7a4b43bf4789b43a808ca1520012fc413d221e64" },
     { name = "pyyaml" },
 ]
@@ -681,7 +681,7 @@ dev = [
 
 [[package]]
 name = "hiivmind-corpus-lib"
-source = { directory = "../hiivmind-corpus-lib" }
+source = { editable = "../hiivmind-corpus-lib" }
 dependencies = [
     { name = "markdown-it-py" },
     { name = "pyyaml" },

@@ -1,6 +1,6 @@
 # AGENTS.md — hiivmind-corpus-agent
 
-The corpus instance of agent-core, a client of its facade: nodes (`nodes/`), shared prose (`includes/`), tools (`tools/corpus.py`) and the topology (`topology.yaml`, with the fragment `enrich-and-publish`). `hiivmind-corpus-lib` and `hiivmind-agent-core` (branch `rebuild` until the cutover) are checked out beside this repository.
+The corpus instance of agent-core, a client of its facade: nodes (`nodes/`), shared prose (`includes/`), tools (`tools/corpus.py`) and the topology (`topology.yaml`, with the fragment `enrich-and-publish`). `hiivmind-corpus-lib` and `hiivmind-agent-core` are checked out beside this repository.
 
 ## Principles
 
