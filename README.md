@@ -40,6 +40,17 @@ uv run agent-core job instance.yaml <sequence> --settings config/<corpus>.yaml [
 
 Needs `git`, `npx`, `gh` when `PUSH` is true, the provider credential (`ANTHROPIC_API_KEY`) in the environment, and `AGENT_CORE_LANGGRAPH_MODEL`, which is required, in `provider:model` form with no default, for example `anthropic:claude-sonnet-5-5`. Without it the CLI exits 2.
 
+### Embeddings
+
+The instance installs `hiivmind-corpus-lib[embeddings]`, so the `embed` node keeps a corpus's `index-embeddings.lance/` up to date and `status` computes the embeddings lag. A run never downloads the model: `embed` ends `no-model` until `BAAI/bge-small-en-v1.5` is in the fastembed cache. fastembed's default cache is `<tmp>/fastembed_cache`, which the system may clear. Use a lasting cache and fill it once:
+
+```bash
+export FASTEMBED_CACHE_PATH=~/.cache/fastembed     # in the shell that runs the jobs
+uv run python -c "from fastembed import TextEmbedding; TextEmbedding(model_name='BAAI/bge-small-en-v1.5')"
+```
+
+The `embed` node embeds index entries only. Chunk embeddings (`corpus.embeddings.embed_chunks`) wait for a node that searches chunks.
+
 ## Tests
 
 ```bash

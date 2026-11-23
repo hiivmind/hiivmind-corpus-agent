@@ -6,7 +6,7 @@ requires-python = ">=3.12"
 dependencies = [
     "agent-core[langgraph,anthropic]",
     "agent-tools",
-    "hiivmind-corpus-lib",
+    "hiivmind-corpus-lib[embeddings]",
     "mountainash-settings",
     "pyyaml",
 ]
