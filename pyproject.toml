@@ -15,9 +15,9 @@ dependencies = [
 dev = ["pytest", "pytest-asyncio"]
 
 [tool.uv.sources]
-agent-core = { path = "../hiivmind-agent-core" }
-agent-tools = { path = "../hiivmind-agent-core/packages/agent-tools" }
-hiivmind-corpus-lib = { path = "../hiivmind-corpus-lib" }
+agent-core = { path = "../hiivmind-agent-core", editable = true }
+agent-tools = { path = "../hiivmind-agent-core/packages/agent-tools", editable = true }
+hiivmind-corpus-lib = { path = "../hiivmind-corpus-lib", editable = true }
 mountainash-settings = { git = "ssh://git@github.com/mountainash-io/mountainash-settings.git", rev = "7a4b43bf4789b43a808ca1520012fc413d221e64" }
 
 [tool.pytest.ini_options]

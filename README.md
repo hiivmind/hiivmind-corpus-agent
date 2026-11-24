@@ -15,11 +15,11 @@ A corpus instance of [agent-core](../hiivmind-agent-core): the refresh of a docu
 | `POLICY.md` | the policy: no force push, no history rewrite |
 | `tests/` | tests through the facade, on the scripted backend |
 
-`hiivmind-corpus-lib` and `hiivmind-agent-core` (branch `rebuild` until the cutover) are checked out beside this repository; `pyproject.toml` takes both by path, so `uv sync` fails without them.
+`hiivmind-corpus-lib` and `hiivmind-agent-core` are checked out beside this repository; `pyproject.toml` takes both by path, so `uv sync` fails without them. They are installed editable: the instance runs whatever the two checkouts hold, on whichever branch they are, with no reinstall.
 
 ## Topology
 
-The sequences are `refresh`, `status`, `enrich`, `migrate` and `graph-validate`. Each runs its checks first, with no model call.
+The sequences are `refresh`, `status`, `enrich`, `migrate` and `graph-validate`. Checks make no model call: `graph-validate` checks that the corpus has a `graph.yaml`, `status` has no checks, and `refresh`, `enrich` and `migrate` hold theirs in their `-prepared` sequences.
 
 `refresh`, `enrich` and `migrate` start at the node `prepare-base`, which puts the corpus on its base branch, level with origin, and link to `refresh-prepared`, `enrich-prepared` and `migrate-prepared`: the core runs a sequence's checks before its start, so the checks of the `-prepared` sequence run on the prepared tree. `refresh-prepared` starts at `check-upstream`; `enrich-prepared` and `migrate-prepared` start at `checkout-sources`.
 
