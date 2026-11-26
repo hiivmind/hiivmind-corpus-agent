@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import agent_core
 import pytest
 from agent_core.core.settings import load_settings
@@ -14,6 +16,14 @@ def test_two_settings_files_point_one_instance_at_two_corpora(load):
 
 def test_param_overrides_the_repository(load):
     assert load("config/polars.yaml", {"CORPUS_REPO": "someone/fork"}).CORPUS_REPO == "someone/fork"
+
+
+def test_a_relative_corpus_path_is_absolute_under_the_working_directory(load, monkeypatch, tmp_path):
+    # the files server resolves a relative path against its root, not the job's directory, so the settings hand it absolute
+    monkeypatch.chdir(tmp_path)
+    expected = (tmp_path.parent / "hiivmind-corpus-data" / "hiivmind-corpus-polars").resolve()
+    assert load("config/polars.yaml").CORPUS_PATH == expected
+    assert load("config/polars.yaml", {"CORPUS_PATH": "~/c"}).CORPUS_PATH == (Path.home() / "c").resolve()
 
 
 def test_a_param_overrides_the_settings_file(instance, tmp_path):   # SET-3, Review Focus 5: a scratch clone's file says PUSH: true
