@@ -3,6 +3,8 @@ name = "hiivmind-corpus-agent"
 version = "0.1.0"
 description = "A corpus instance for agent-core: refresh a documentation corpus and open a pull request"
 requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
     "agent-core[langgraph,anthropic]",
     "agent-tools",
